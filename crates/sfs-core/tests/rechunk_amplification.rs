@@ -7,6 +7,10 @@
 //!
 //! Run with `--nocapture` to print the ratio; the assertion guards the win.
 
+// Unix-only: the metric is `st_blocks` (physical 512-byte blocks actually
+// written), which has no cross-platform equivalent. Skipped on other targets.
+#![cfg(unix)]
+
 use sfs_core::version::store::Engine;
 use std::os::unix::fs::MetadataExt;
 use tempfile::tempdir;
