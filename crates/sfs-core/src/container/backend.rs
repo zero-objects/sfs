@@ -36,6 +36,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::io;
+#[cfg(unix)] // only the unix probe_backing_len seeks; the fallback does not
 use std::io::{Seek, SeekFrom};
 use std::path::Path;
 
@@ -357,7 +358,7 @@ impl Backend {
         // Always-on read counter (item O): measures the lazy-CoW bitmap fast path.
         self.reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         match &self.store {
-            Store::File(file) => platform::read_exact_at(file, buf, off).map_err(crate::Error::Io),
+            Store::File(file) => crate::pio::read_exact_at(file, buf, off).map_err(crate::Error::Io),
             Store::Mem(mem) => {
                 // Bounds already validated against `self.len` above; `off + len`
                 // is therefore in range for the buffer (len == mem.len()).
@@ -390,7 +391,7 @@ impl Backend {
         crate::prof_add!(PWRITES, 1);
         crate::prof_add!(PHYS_BYTES, buf.len());
         match &mut self.store {
-            Store::File(file) => platform::write_all_at(file, buf, off).map_err(crate::Error::Io),
+            Store::File(file) => crate::pio::write_all_at(file, buf, off).map_err(crate::Error::Io),
             Store::Mem(mem) => {
                 // Bounds already validated against `self.len` above.
                 let start = off as usize;
@@ -505,85 +506,8 @@ impl Backend {
     }
 }
 
-// ─── platform-specific positioned IO ────────────────────────────────────────
-
-/// Private module providing cross-platform positioned IO.
-///
-/// On Unix we use `pread(2)` / `pwrite(2)` via the stable
-/// `std::os::unix::fs::FileExt` trait methods `read_exact_at` and
-/// `write_all_at` (stable since Rust 1.33.0).
-///
-/// On Windows we use `seek_read` / `seek_write` from
-/// `std::os::windows::fs::FileExt`. Windows positioned IO updates the cursor,
-/// and `seek_write` may short-write, so we use retry loops.
-mod platform {
-    use std::fs::File;
-    use std::io;
-
-    #[cfg(unix)]
-    pub(super) fn read_exact_at(file: &File, buf: &mut [u8], off: u64) -> io::Result<()> {
-        use std::os::unix::fs::FileExt;
-        file.read_exact_at(buf, off)
-    }
-
-    #[cfg(unix)]
-    pub(super) fn write_all_at(file: &File, buf: &[u8], off: u64) -> io::Result<()> {
-        use std::os::unix::fs::FileExt;
-        file.write_all_at(buf, off)
-    }
-
-    #[cfg(windows)]
-    pub(super) fn read_exact_at(file: &File, buf: &mut [u8], off: u64) -> io::Result<()> {
-        use std::os::windows::fs::FileExt;
-        let mut read = 0usize;
-        while read < buf.len() {
-            let n = file.seek_read(&mut buf[read..], off + read as u64)?;
-            if n == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "seek_read returned 0",
-                ));
-            }
-            read += n;
-        }
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    pub(super) fn write_all_at(file: &File, buf: &[u8], off: u64) -> io::Result<()> {
-        use std::os::windows::fs::FileExt;
-        let mut written = 0usize;
-        while written < buf.len() {
-            let n = file.seek_write(&buf[written..], off + written as u64)?;
-            if n == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::WriteZero,
-                    "seek_write returned 0",
-                ));
-            }
-            written += n;
-        }
-        Ok(())
-    }
-
-    // Fallback for platforms that are neither unix nor windows (e.g., wasm).
-    // Provided so the crate compiles; actual IO will panic at runtime.
-    #[cfg(not(any(unix, windows)))]
-    pub(super) fn read_exact_at(_file: &File, _buf: &mut [u8], _off: u64) -> io::Result<()> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "positioned IO not supported on this platform",
-        ))
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    pub(super) fn write_all_at(_file: &File, _buf: &[u8], _off: u64) -> io::Result<()> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "positioned IO not supported on this platform",
-        ))
-    }
-}
+// Positioned IO lives in the shared `crate::pio` module (used here and by the
+// SaaS blob log) so neither imports a Unix-only `FileExt` directly.
 
 // ─── unit tests ─────────────────────────────────────────────────────────────
 

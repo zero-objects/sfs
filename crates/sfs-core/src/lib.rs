@@ -16,6 +16,7 @@ pub mod container;
 pub mod crypto;
 pub mod fsck;
 pub mod inspect;
+pub mod pio;
 pub mod recovery;
 pub mod retention;
 pub mod unit;

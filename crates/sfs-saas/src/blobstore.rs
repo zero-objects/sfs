@@ -45,7 +45,7 @@
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::os::unix::fs::FileExt;
+use sfs_core::pio;
 use std::path::Path;
 
 /// A durable, append-only key → bytes log.
@@ -80,7 +80,7 @@ impl BlobStore {
                 break;
             }
             let mut len_buf = [0u8; 4];
-            file.read_exact_at(&mut len_buf, pos)?;
+            pio::read_exact_at(&file, &mut len_buf, pos)?;
             let payload_len = u32::from_le_bytes(len_buf) as u64;
 
             // Full record must fit: payload_len bytes + 4-byte trailing CRC.
@@ -90,9 +90,9 @@ impl BlobStore {
             }
 
             let mut payload = vec![0u8; payload_len as usize];
-            file.read_exact_at(&mut payload, pos + 4)?;
+            pio::read_exact_at(&file, &mut payload, pos + 4)?;
             let mut crc_buf = [0u8; 4];
-            file.read_exact_at(&mut crc_buf, pos + 4 + payload_len)?;
+            pio::read_exact_at(&file, &mut crc_buf, pos + 4 + payload_len)?;
             let stored_crc = u32::from_le_bytes(crc_buf);
             if crc32fast::hash(&payload) != stored_crc {
                 break; // torn / corrupt tail
@@ -143,7 +143,7 @@ impl BlobStore {
         record.extend_from_slice(&crc.to_le_bytes());
 
         let at = self.append_pos;
-        self.file.write_all_at(&record, at)?;
+        pio::write_all_at(&self.file, &record, at)?;
         self.file.sync_data()?;
 
         let value_off = at + 4 + 2 + key.len() as u64;
@@ -158,7 +158,7 @@ impl BlobStore {
             None => Ok(None),
             Some(&(off, len)) => {
                 let mut buf = vec![0u8; len];
-                self.file.read_exact_at(&mut buf, off)?;
+                pio::read_exact_at(&self.file, &mut buf, off)?;
                 Ok(Some(buf))
             }
         }
@@ -190,7 +190,7 @@ impl BlobStore {
     pub fn for_each(&self, mut f: impl FnMut(&[u8], &[u8])) -> io::Result<()> {
         for (key, &(off, len)) in &self.index {
             let mut buf = vec![0u8; len];
-            self.file.read_exact_at(&mut buf, off)?;
+            pio::read_exact_at(&self.file, &mut buf, off)?;
             f(key, &buf);
         }
         Ok(())
