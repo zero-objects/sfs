@@ -75,7 +75,7 @@ jobs:
       - name: Resolve tag
         id: meta
         run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.93.0
       - name: Install build deps
         run: sudo apt-get update -qq && sudo apt-get install -y libfuse3-dev pkg-config
       - name: Build release binaries

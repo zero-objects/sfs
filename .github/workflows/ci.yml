@@ -18,11 +18,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Pinned toolchain (not rolling `stable`): clippy lints change with every
+        # stable bump, so `@stable` makes `-D warnings` non-reproducible and turns
+        # a green tree red on the next release. 1.93.0 is the version rc.1 was
+        # verified against. Bump deliberately, fixing new lints in the same change.
         os: [ubuntu-latest, macos-latest]
-        rust: [stable]
+        rust: ["1.93.0"]
         include:
           - os: windows-latest
-            rust: stable
+            rust: "1.93.0"
             experimental: true
 
     steps:
