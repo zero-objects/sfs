@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use sfs or build on its ideas, please cite the preprint below."
+title: "sfs: A Fragment-Causal Filesystem Substrate for Agentic Time across Machines, Encrypted SaaS, and WebAssembly"
+type: software
+authors:
+  - family-names: "Keßler"
+    given-names: "Sandra Theresa"
+repository-code: "https://github.com/zero-objects/sfs"
+license: "MIT OR Apache-2.0"
+version: "1.0.0-rc.1"
+date-released: "2026-07-21"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.21472009"
+    description: "Zenodo preprint"
+preferred-citation:
+  type: article
+  title: "sfs: A Fragment-Causal Filesystem Substrate for Agentic Time across Machines, Encrypted SaaS, and WebAssembly"
+  authors:
+    - family-names: "Keßler"
+      given-names: "Sandra Theresa"
+  year: 2026
+  doi: "10.5281/zenodo.21472009"
+  url: "https://doi.org/10.5281/zenodo.21472009"

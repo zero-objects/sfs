@@ -10,6 +10,11 @@ behind that.
 Aligned with the Zero-Principle — positioned as a graph-based tool, a substrate,
 and a standalone product.
 
+**Paper:** *sfs: A Fragment-Causal Filesystem Substrate for Agentic Time across
+Machines, Encrypted SaaS, and WebAssembly* — preprint,
+[doi:10.5281/zenodo.21472009](https://doi.org/10.5281/zenodo.21472009)
+(CC BY 4.0). See [`CITATION.cff`](CITATION.cff) to cite this work.
+
 **Repository and releases:** [github.com/zero-objects/sfs](https://github.com/zero-objects/sfs).
 The published Rust packages carry the `zero-sfs-*` prefix for unambiguous
 registry naming; binary and library names stay at `sfs-*` / `sfs_*` where
