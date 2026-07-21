@@ -71,8 +71,9 @@ winfsp     = { version = "0.13", optional = true }
 winfsp-sys = { version = "0.12", optional = true }
 
 # Delay-load linking for WinFsp (see build.rs).
-[target.'cfg(windows)'.build-dependencies]
-winfsp = { version = "0.13", optional = true }
+# No winfsp build-dependency: build.rs emits the delay-load flags itself (see
+# its header), so the default Windows build needs neither the winfsp crate nor
+# the WinFsp SDK. The runtime binding stays an optional target dependency above.
 
 [dev-dependencies]
 tempfile = "3"

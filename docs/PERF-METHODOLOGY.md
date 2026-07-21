@@ -1,147 +1,146 @@
-# sfs — Perf-Mess- und Aufbereitungs-Protokoll
+# sfs — Perf Measurement and Presentation Protocol
 
-**Zweck:** verhindern, dass Perf-Zahlen geraten, fehlgerahmt oder als unlesbare
-Zahlenwand präsentiert werden. Diese Session hat gezeigt: ohne Protokoll rate ich
-mich durch die Zahlen (falsch: „serieller Seal ist die Ursache", „17× Write-Verlust
-pauschal", „1180× auch auf Partition"). Jede Perf-Aussage folgt ab jetzt diesem
-Dokument. Es gilt für mich UND für jeden Perf-Agenten.
-
----
-
-## 0. Kardinalregel
-
-**Erst die Phase messen, dann die Ursache benennen — nie umgekehrt.** Keine
-Attribution eines Flaschenhalses ohne Profiling, das ihn zeigt. „Es liegt
-wahrscheinlich an X" ist verboten, bis X gemessen ist. Wenn eine Messung nicht
-eindeutig ist: sagen „nicht eindeutig, nächster Messschritt Y" — NICHT mit einer
-Vermutung füllen.
+**Purpose:** prevent perf numbers from being guessed, misframed, or presented as an
+unreadable wall of numbers. This session has shown: without a protocol I guess my
+way through the numbers (wrong: "serial seal is the cause", "17× write loss across
+the board", "1180× on the partition too"). Every perf statement from now on follows
+this document. It applies to me AND to every perf agent.
 
 ---
 
-## 1. Jede Zahl trägt ihre vollständige Koordinate
+## 0. Cardinal rule
 
-Eine nackte MB/s-Zahl ist bedeutungslos und die Quelle meiner Fehlrahmungen. Jede
-Messung wird auf diesen Achsen verortet, ALLE explizit:
+**Measure the phase first, then name the cause — never the other way around.** No
+attribution of a bottleneck without profiling that shows it. "It's probably due to
+X" is forbidden until X is measured. If a measurement is not conclusive: say "not
+conclusive, next measurement step Y" — do NOT fill it in with a guess.
 
-| Achse | Werte | Falle (real passiert) |
+---
+
+## 1. Every number carries its full coordinate
+
+A bare MB/s number is meaningless and the source of my misframings. Every
+measurement is located on these axes, ALL explicit:
+
+| Axis | Values | Trap (actually happened) |
 |---|---|---|
-| **Mode** | Engine (Rust direkt) · FUSE (sfs-mount) · DKMS (sfs.ko) · SaaS | Engine 833 MB/s ≠ Kernel 58 MB/s — nie vermischen |
-| **Backend** | wachsendes File · **fixes Device/Partition** | grow_for-O(n²) bittet NUR das File; Partition war immer fein |
-| **Cipher** | none · xts · gcm | NONE isoliert die Krypto-Kosten (war der Beweis: Krypto ist NICHT der Flaschenhals) |
-| **Größe** | 4k/64k/1M/16M/256M/1G/4G | 4k+fsync = fsync-gebunden (Parität); Groß-Seq = Durchsatz (Verlust) — verschiedene Bottlenecks |
+| **Mode** | Engine (Rust direct) · FUSE (sfs-mount) · DKMS (sfs.ko) · SaaS | Engine 833 MB/s ≠ Kernel 58 MB/s — never conflate |
+| **Backend** | growing file · **fixed device/partition** | grow_for O(n²) affects ONLY the file; the partition was always fine |
+| **Cipher** | none · xts · gcm | NONE isolates the crypto cost (this was the proof: crypto is NOT the bottleneck) |
+| **Size** | 4k/64k/1M/16M/256M/1G/4G | 4k+fsync = fsync-bound (parity); large-seq = throughput (loss) — different bottlenecks |
 | **Pattern** | seq/rand × read/write | |
-| **Sync-Policy** | buffered · fsync-pro-Op (`--end_fsync`/`O_SYNC`) · O_DIRECT | 4k+fsync ≠ buffered-seq — der ganze „17×" war der buffered-Fall |
-| **Cache** | cold (umount/remount + drop_caches) · warm | `drop_caches` flusht NICHT sfs' in-Kernel-Caches → Read-Varianz |
-| **Threads/QD** | psync iodepth 1 (kanonische Single-Thread-Zahl) · io_uring 1/8/32 (separate Skalierungsachse) | Ein historischer fio/io_uring-Crash wurde 2026-07-18 als behoben gemeldet; bis der externe Regression-Gate erneut grün ist, bleibt psync die veröffentlichte Vergleichsachse. Nie psync gegen io_uring als Gleiches-gegen-Gleiches rechnen. |
+| **Sync policy** | buffered · fsync-per-op (`--end_fsync`/`O_SYNC`) · O_DIRECT | 4k+fsync ≠ buffered-seq — the whole "17×" was the buffered case |
+| **Cache** | cold (umount/remount + drop_caches) · warm | `drop_caches` does NOT flush sfs' in-kernel caches → read variance |
+| **Threads/QD** | psync iodepth 1 (canonical single-thread number) · io_uring 1/8/32 (separate scaling axis) | A historical fio/io_uring crash was reported fixed on 2026-07-18; until the external regression gate is green again, psync remains the published comparison axis. Never compare psync against io_uring as like-for-like. |
 
-**Regel:** wenn ich eine Zahl nenne, nenne ich mode+backend+cipher+size+sync+cache.
-Sonst ist es keine Messung, es ist ein Gefühl.
+**Rule:** when I state a number, I state mode+backend+cipher+size+sync+cache.
+Otherwise it is not a measurement, it is a feeling.
 
 ---
 
-## 2. Apples-to-apples: der exakte Partner pro (Mode, Cipher)
+## 2. Apples-to-apples: the exact partner per (Mode, Cipher)
 
-Immer gegen den Partner, der DASSELBE tut — nicht gegen „die Welt".
+Always against the partner that does the SAME thing — not against "the world".
 
-| Mode | unverschlüsselt | verschlüsselt |
+| Mode | unencrypted | encrypted |
 |---|---|---|
-| **DKMS** (sfs.ko) | ext4, fat32 (bare Partition, Kernel) | ext4-auf-LUKS2 (aes-xts-plain64, beide AES-XTS/AES-NI); sfs-gcm standalone (authentifiziert, kein dm-crypt-Äquiv.) |
-| **FUSE** (sfs-mount) | fuse2fs (ext4-über-FUSE), bindfs/passthrough (FUSE-Overhead-Boden) | gocryptfs (FUSE-AES) |
-| **SaaS** | — (kein FS-Partner; ehrlich gegen die Roh-Disk-Decke + At-Rest None-vs-AEAD) | — |
+| **DKMS** (sfs.ko) | ext4, fat32 (bare partition, kernel) | ext4-on-LUKS2 (aes-xts-plain64, both AES-XTS/AES-NI); sfs-gcm standalone (authenticated, no dm-crypt equivalent) |
+| **FUSE** (sfs-mount) | fuse2fs (ext4-over-FUSE), bindfs/passthrough (FUSE overhead floor) | gocryptfs (FUSE-AES) |
+| **SaaS** | — (no FS partner; honestly against the raw-disk ceiling + at-rest None-vs-AEAD) | — |
 
-Gleiche Hardware, gleiche Partition/Backing, gleiche fio-Job-Zeile (bis auf den zu
-variierenden Parameter), gleiche cold-cache-Methode. Cross-Cipher/Cross-Mode nur mit
-explizitem Label „nicht apples-to-apples".
-
----
-
-## 3. Projekt-spezifische Fallen (Checkliste vor jeder Kampagne)
-
-- [ ] **sfs kann kein O_DIRECT** → device-truth-Spalte nur für ext4/LUKS; sfs nur buffered. Sagen.
-- [ ] **io_uring separat behandeln** → 2026-07-18 als behoben gemeldet, aber vor
-      Veröffentlichung extern revalidieren; die kanonische faire Matrix bleibt
-      fio psync single-thread auf beiden Seiten.
-- [ ] **`drop_caches` flusht sfs-Kernel-Caches nicht** → cold = umount/remount + drop_caches; Read-Varianz benennen.
-- [ ] **buffered vs fsync-pro-Op** — welcher misst was ich behaupte? 4k+fsync ist der durability-Fall.
-- [ ] **File vs Partition** — welches Deployment? Zahl labeln. Raw-Partition =
-      nativer v12-Kernelpfad; Container-File auf ext4 = portabler FUSE-Pfad.
-- [ ] **Engine vs Kernel** — Rust-Engine-Bench ≠ .ko-Bench. Nie mischen.
-- [ ] **GCM = 2× Slot-Layout** (fragsize+16 → +1 Block) → mehr I/O als XTS, unabhängig von der CPU.
-- [ ] **Derivierte fragsize pro Größe** (D-2b) — 256M-File hat andere Fragmente als 1M; bei Multi-GiB protokollieren.
-- [ ] **Sustained sfs-randwrite** braucht mitlaufende `sfsctl evict`+`trim` (Steady-State), sonst ENOSPC.
-- [ ] **FUSE Large-I/O/Unmount-Regression** → die frühere ≥256-MiB-Hang- und
-      Daemon-Leak-Grenze gilt als behoben. Trotzdem pro Lauf Timeout,
-      Session-Ende, OOM/dmesg, Leak-Zahl und freien RAM prüfen; nie wieder durch
-      eine feste Größenkappe unsichtbar machen.
+Same hardware, same partition/backing, same fio job line (except for the parameter
+being varied), same cold-cache method. Cross-cipher/cross-mode only with an explicit
+label "not apples-to-apples".
 
 ---
 
-## 4. Ursachen-Attribution nur per Dekomposition
+## 3. Project-specific traps (checklist before every campaign)
 
-Wenn ein Deficit gefunden wird, wird es zerlegt, bevor eine Ursache genannt wird:
-- **CPU-Phasen** (seal, encode): per-Phase-Timer (feature-gated `commit_profile`) oder `perf`/Flamegraph. Frage: seriell (1 Kern) oder parallel (N)?
-- **I/O-Phasen** (fsync, flush): `strace -c -f` / `blktrace` — Anzahl UND Latenz der Flushes/Commits zählen.
-- **Amplification**: physische Bytes / logische Bytes messen (Counter `PHYS_BYTES`/`FLUSHES`/`NODE_PAIRS`). Ein 4k-Write der 2,9 MB schreibt = 716× — DAS ist die Zahl, die den Bug findet.
-- Ergebnis: gerankte Phasen-Tabelle (Phase → ms → % → 1-Kern-oder-N), dann die Ursache. Nie vorher.
-
-Gegenprobe-Isolation: NONE misst „ohne Krypto"; roher Seal-Bench misst „nur Krypto".
-Wenn NONE ≈ XTS → Krypto ist es nicht (so wurde meine Seal-Vermutung widerlegt).
-
----
-
-## 5. Aufbereitung: wie Ergebnisse präsentiert werden (KEINE Zahlenwand)
-
-Sandra hat es zweimal gesagt: eine Wand aus Zahlen als Text ist unlesbar. Standard:
-
-- **Eine kleine Tabelle pro Vergleich** (Mode), max ~6 Zeilen sichtbar. Spalten:
-  `Workload | sfs | Partner | Verhältnis | Verdikt`.
-- **Verdikt-Spalte Pflicht:** WIN / LOSS / PAR gegen das „≥ ext4/fat32"-Ziel. Ein
-  17×-Verlust ist LOSS, nicht „~on par". Kein Weichspülen.
-- **Eine Kernaussage pro Tabelle** in Prosa darüber — was der Leser mitnimmt.
-- **Absolutwert UND Verhältnis** (nicht nur eins). Bei CPU-Phasen: 1-Kern-oder-N.
-- **Rauschen markieren** (>10% Spread → `*` + Vorsicht). **Cache-bound vs device-truth**
-  trennen. **Nicht messbare Achsen** als Lücke benennen, nicht kaschieren.
-- **Für komplexe Ergebnisse: ein Artifact** (visuelle HTML-Tabelle) statt Text-Wall.
-- **Ehrlichkeits-Regeln:** nicht schmeichelhaft runden; Verlust ≠ Parität; „gemessen"
-  strikt von „vermutet" trennen; Caveat inline, nicht in einer Fußnote versteckt;
-  wenn sfs verliert, um wie viel und warum — als Zahl, nicht als Adjektiv.
+- [ ] **sfs cannot do O_DIRECT** → device-truth column only for ext4/LUKS; sfs buffered only. Say so.
+- [ ] **Treat io_uring separately** → reported fixed on 2026-07-18, but revalidate
+      externally before publication; the canonical fair matrix remains
+      fio psync single-thread on both sides.
+- [ ] **`drop_caches` does not flush sfs kernel caches** → cold = umount/remount + drop_caches; name the read variance.
+- [ ] **buffered vs fsync-per-op** — which one measures what I claim? 4k+fsync is the durability case.
+- [ ] **File vs partition** — which deployment? Label the number. Raw partition =
+      native v12 kernel path; container file on ext4 = portable FUSE path.
+- [ ] **Engine vs kernel** — Rust engine bench ≠ .ko bench. Never mix.
+- [ ] **GCM = 2× slot layout** (fragsize+16 → +1 block) → more I/O than XTS, independent of the CPU.
+- [ ] **Derived fragsize per size** (D-2b) — a 256M file has different fragments than 1M; log it for multi-GiB.
+- [ ] **Sustained sfs randwrite** needs concurrent `sfsctl evict`+`trim` (steady state), otherwise ENOSPC.
+- [ ] **FUSE large-I/O/unmount regression** → the earlier ≥256-MiB hang and
+      daemon-leak boundary is considered fixed. Nonetheless, per run check timeout,
+      session end, OOM/dmesg, leak count, and free RAM; never again hide it behind
+      a fixed size cap.
 
 ---
 
-## 6. Reproduzierbarkeit (jede Zahl rückverfolgbar)
+## 4. Cause attribution only via decomposition
 
-- Eingecheckt sind die allgemeinen Treiber (`scripts/bench/vm-kernel.sh`,
-  `scripts/bench/vm-staggered.sh`) und Summary-Generatoren. Der aktuelle
-  Ergebnisstand liegt in
+When a deficit is found, it is decomposed before a cause is named:
+- **CPU phases** (seal, encode): per-phase timer (feature-gated `commit_profile`) or `perf`/flamegraph. Question: serial (1 core) or parallel (N)?
+- **I/O phases** (fsync, flush): `strace -c -f` / `blktrace` — count both the number AND the latency of flushes/commits.
+- **Amplification**: measure physical bytes / logical bytes (counters `PHYS_BYTES`/`FLUSHES`/`NODE_PAIRS`). A 4k write that writes 2.9 MB = 716× — THAT is the number that finds the bug.
+- Result: ranked phase table (phase → ms → % → 1-core-or-N), then the cause. Never before.
+
+Counter-check isolation: NONE measures "without crypto"; raw seal bench measures "crypto only".
+If NONE ≈ XTS → it isn't crypto (this is how my seal guess was refuted).
+
+---
+
+## 5. Presentation: how results are presented (NO wall of numbers)
+
+Sandra has said it twice: a wall of numbers as text is unreadable. Standard:
+
+- **One small table per comparison** (Mode), max ~6 rows visible. Columns:
+  `Workload | sfs | Partner | Ratio | Verdict`.
+- **Verdict column mandatory:** WIN / LOSS / PAR against the "≥ ext4/fat32" target. A
+  17× loss is LOSS, not "~on par". No sugarcoating.
+- **One key statement per table** in prose above it — what the reader takes away.
+- **Absolute value AND ratio** (not just one). For CPU phases: 1-core-or-N.
+- **Mark noise** (>10% spread → `*` + caution). **Separate cache-bound vs device-truth**.
+  **Name non-measurable axes** as a gap, do not paper over them.
+- **For complex results: an Artifact** (visual HTML table) instead of a text wall.
+- **Honesty rules:** do not round flatteringly; loss ≠ parity; strictly separate
+  "measured" from "assumed"; caveat inline, not hidden in a footnote; if sfs loses,
+  by how much and why — as a number, not as an adjective.
+
+---
+
+## 6. Reproducibility (every number traceable)
+
+- Checked in are the general drivers (`scripts/bench/vm-kernel.sh`,
+  `scripts/bench/vm-staggered.sh`) and summary generators. The current
+  result state is in
   [`perf/perf-report-2026-07-20.html`](perf/perf-report-2026-07-20.html):
-  **N=10 gültige/fault-freie Läufe pro Zelle, arithmetisches Mittel**. Die
-  HTML-Datei enthält Aggregate, nicht die zehn Einzelwerte.
-- Für jede veröffentlichte Kampagne müssen Runner-Version, unveränderte
-  per-run-Rohdaten und Health-Nachweise zusammen archiviert werden. Dazu gehören
-  Source-Commit, Hash der tatsächlich gestarteten Module/Binaries, `uname -r`,
-  CPU-AES-Flag, fio-Version, mkfs/cryptsetup-Parameter, Cold-Cache-Methode und
-  abgeleitete fragsize. Ein kurzer Artefakt-Hash ohne Zuordnung zum Source-Commit
-  reicht nicht.
-- Explorative Kampagnen: mindestens 3 Wiederholungen, Median und Spread. Finale
-  Headline-Kampagne: das im Report deklarierte N und Aggregat verwenden; nie
-  Median und Mittelwert zwischen Text, Generator und HTML vermischen.
-- Rohdaten vergangener Kampagnen nur dann als reproduzierbar bezeichnen, wenn
-  sie tatsächlich in git, einem Release-Artefakt oder einem unveränderlichen
-  externen Archiv vorhanden sind. „Aus der Historie ziehbar“ ist kein Ersatz
-  für einen nachgewiesenen Pfad.
-- Silizium-Decke als Sanity: kein buffered-Wert > O_DIRECT-Ceiling ohne „= Cache"-Label.
+  **N=10 valid/fault-free runs per cell, arithmetic mean**. The
+  HTML file contains aggregates, not the ten individual values.
+- For every published campaign, the runner version, unmodified
+  per-run raw data, and health evidence must be archived together. This includes
+  the source commit, the hash of the modules/binaries actually started, `uname -r`,
+  the CPU AES flag, the fio version, mkfs/cryptsetup parameters, cold-cache method, and
+  derived fragsize. A short artifact hash without a mapping to the source commit
+  is not enough.
+- Exploratory campaigns: at least 3 repetitions, median and spread. Final
+  headline campaign: use the N and aggregate declared in the report; never
+  mix median and mean across text, generator, and HTML.
+- Only call raw data of past campaigns reproducible if
+  it is actually present in git, a release artifact, or an immutable
+  external archive. "Derivable from history" is no substitute
+  for a demonstrated path.
+- Silicon ceiling as a sanity check: no buffered value > O_DIRECT ceiling without a "= cache" label.
 
 ---
 
-## 7. Checkliste, die ich vor JEDER Perf-Aussage durchgehe
+## 7. Checklist I go through before EVERY perf statement
 
-1. Trägt jede Zahl ihre volle Koordinate (Mode/Backend/Cipher/Size/Sync/Cache)?
-2. Exakter Partner, identische Bedingungen?
-3. Ist die Ursache gemessen (Dekomposition) oder geraten? Wenn geraten → nicht sagen.
-4. Verdikt WIN/LOSS/PAR ehrlich (kein 17× als „on par")?
-5. Lesbar (kleine Tabelle + eine Kernaussage), kein Zahlen-Wall?
-6. Reproduzierbar (exakter Runner + per-run-Rohdaten/Health + Source-Commit +
-   gestartete Artefakt-Hashes)?
+1. Does every number carry its full coordinate (Mode/Backend/Cipher/Size/Sync/Cache)?
+2. Exact partner, identical conditions?
+3. Is the cause measured (decomposition) or guessed? If guessed → don't say it.
+4. Verdict WIN/LOSS/PAR honest (no 17× as "on par")?
+5. Readable (small table + one key statement), no wall of numbers?
+6. Reproducible (exact runner + per-run raw data/health + source commit +
+   started artifact hashes)?
 7. Caveats inline (O_DIRECT/io_uring/cache/file-vs-partition/engine-vs-kernel)?
 
-Wenn eine Antwort „nein" ist: die Aussage ist noch nicht fertig.
+If any answer is "no": the statement is not finished yet.
