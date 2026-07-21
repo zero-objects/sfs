@@ -3881,8 +3881,8 @@ static int sfs_create(struct mnt_idmap *idmap, struct inode *dir,
  * (store.rs:2811-2870). The inode is staged like a created file and the
  * commit materialises the record — empty directories survive unmount.
  */
-static int sfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
-		     struct dentry *dentry, umode_t mode)
+static int sfs_mkdir_int(struct mnt_idmap *idmap, struct inode *dir,
+			 struct dentry *dentry, umode_t mode)
 {
 	struct super_block *sb = dir->i_sb;
 	struct sfs_sb_info *sbi = SFS_SB(sb);
@@ -3978,6 +3978,26 @@ static int sfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 #endif
 	return 0;
 }
+
+/*
+ * inode_operations.mkdir changed its return type from int to struct dentry * in
+ * v6.17 (NULL on success, ERR_PTR(-errno) on failure). Keep the body above as an
+ * int-returning helper and adapt at the boundary; ERR_PTR(0) == NULL, so the
+ * success path maps cleanly.
+ */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+static struct dentry *sfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
+				struct dentry *dentry, umode_t mode)
+{
+	return ERR_PTR(sfs_mkdir_int(idmap, dir, dentry, mode));
+}
+#else
+static int sfs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
+		     struct dentry *dentry, umode_t mode)
+{
+	return sfs_mkdir_int(idmap, dir, dentry, mode);
+}
+#endif
 
 /* ── Namespace ops: unlink / rmdir (WS4 4.1) ────────────────────────────────
  *

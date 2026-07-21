@@ -32,8 +32,8 @@ transport identity.  Physical locations and cipher encodings are omitted for
 the same reason: they may change without creating a new logical version.
 
 This model separates three granularities that are often conflated.  A
-byte-range is the API granularity of a read or write; a fragment is the unit of
-storage, transfer, and merge classification; and a unit is the scope of the
+byte-range is the API granularity of a read or write.  A fragment is the unit of
+storage, transfer, and merge classification.  A unit is the scope of the
 version vector and user-visible conflict.  Consequently, \sfs{} provides
 byte-addressed I/O but fragment-granular causality.
 
@@ -132,9 +132,9 @@ a difference in architectural center, not a claim that either design subsumes
 the other.
 
 The broader distinction is the role assigned to the fragment map.  CVFS and
-snapshot filesystems establish that native versioning is useful; optimistic filesystems
-establish version vectors and disconnected operation; WNFS and Peergos show
-that encrypted collaboration can be portable; and Ceph shows that a substrate
+snapshot filesystems establish that native versioning is useful.  Optimistic filesystems
+establish version vectors and disconnected operation.  WNFS and Peergos show
+that encrypted collaboration can be portable.  Ceph shows that a substrate
 can serve several APIs.  \sfs{} combines lessons from these lines, but studies
 the fragment map itself as the shared boundary between history,
 synchronization, conflict isolation, and execution backends.  The NoSQL annex

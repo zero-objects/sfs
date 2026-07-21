@@ -17,7 +17,7 @@ as mode, ownership, timestamps, symlink target, flags, and extended attributes.
 Separating the streams prevents a concurrent metadata-only operation from
 becoming a content conflict.  Paths are mutable keys, not identities.  A key
 catalog maps raw path bytes to UUIDs, while an identity catalog maps UUIDs to
-the current unit-record location.  Rename changes the former; relocation
+the current unit-record location.  Rename changes the former.  Relocation
 changes the latter.  Several keys may therefore name one UUID, providing the
 storage primitive used for aliases and hard links.
 
@@ -27,7 +27,7 @@ fragment-size exponent $e$, and the logical length of the final fragment.  The
 entry $M[f]$ is a packed causal dot $(a,c)$: replica alias $a$ and that replica's
 monotone counter $c$.  The corresponding $L[f]$ locates the selected physical
 encoding.  A write increments the local component of $VV$ and assigns the new
-dot only to touched fragments; untouched positions retain their dots and
+dot only to touched fragments.  Untouched positions retain their dots and
 locations.
 
 Each new unit record points to its predecessor.  Resolving an old logical
@@ -41,7 +41,7 @@ Named commits are cuts over selected units.  Per-unit bitmaps pin the fragments
 needed by a cut so retention does not reclaim them.  Unnamed history may be
 thinned by the configured retention policy.  The guarantee is therefore
 retention-scoped rather than an assertion that every superseded byte remains
-forever; root-key rotation introduces an additional epoch boundary discussed in
+forever.  Root-key rotation introduces an additional epoch boundary discussed in
 \cref{sec:discussion}.
 
 \subsection{Deterministic Fragment Geometry}
@@ -62,7 +62,7 @@ production schedule is a monotone exponent staircase:
 \begin{table}[t]
   \centering
   \small
-  \caption{Current v12 fragment-size schedule.  The last band is capped; its
+  \caption{Current v12 fragment-size schedule.  The last band is capped.  Its
     fragment count consequently grows linearly for sufficiently large units.}
   \label{tab:geometry}
   \begin{tabular}{@{}lll@{}}
@@ -83,7 +83,7 @@ granularity for small files.  A unit crossing a band boundary is re-fragmented.
 That transition loses delta reuse across the old and new geometry: unpinned old
 fragments are freed, whereas commit-pinned fragments are retained as history.
 Manifest construction and comparison remain linear in the number of units and
-fragments; only offset-to-fragment lookup is $O(1)$.  In steady state, payload
+fragments.  Only offset-to-fragment lookup is $O(1)$.  In steady state, payload
 transfer is proportional to changed or missing fragments, not to total retained
 history.
 
@@ -93,7 +93,7 @@ history.
 The first two 4-KiB blocks of a container are alternating header slots.  Each
 v12 header contains the format and cipher configuration, catalog roots,
 publication sequence, writer and key epochs, eviction-tail watermark, and
-password-KDF salt.  CRC32 detects torn or random corruption; HMAC-SHA256 under a
+password-KDF salt.  CRC32 detects torn or random corruption.  HMAC-SHA256 under a
 root-key-derived header key authenticates security-relevant fields.  Of the
 supported, CRC- and MAC-valid slots, the one with the highest commit sequence is
 active.
@@ -101,7 +101,7 @@ active.
 A normal mutation writes fresh content fragments, a new unit record, and
 copy-on-write catalog spines.  It then flushes these blocks and writes the
 inactive header slot with the new roots and a higher sequence.  Before this
-publication, all new objects are unreachable from the active roots; after it,
+publication, all new objects are unreachable from the active roots.  After it,
 the new state is complete.  A power failure therefore selects either the old
 or the new root set on reopen, not a mixture.  Several operations, including
 record-plus-index updates in the annex, may be staged under one publication.
@@ -157,7 +157,7 @@ catalog spines during a batch.
   \caption{Schematic v12 physical layout, not to scale.  Two fixed 4-KiB
   header slots alternate as the publication point.  Catalog and live regions
   allocate from the low end, while retained history grows down from the
-  high end; their gap is available capacity.  When asynchronous writes are
+  high end.  Their gap is available capacity.  When asynchronous writes are
   enabled, a fixed WAL reservation occupies the top of the container and the
   history frontier grows below it.}
   \label{fig:container-layout}
@@ -168,7 +168,7 @@ publication slots explicit.  A collision between the forward and backward
 frontiers grows the container rather than allowing the regions to overlap.
 
 Superseded current fragments become self-describing history records when they
-must survive; retention can thin or explicitly evict unpinned history, and
+must survive.  Retention can thin or explicitly evict unpinned history, and
 released ranges can be trimmed.  Limited defragmentation relocates only state
 whose history and pin relationships remain valid.  This is not a wandering
 log and has no background segment cleaner, but it does have explicit retention,
@@ -194,7 +194,7 @@ P, & VV_P\text{ has observed }d_L,\\
 The first case is identical state.  In the next two cases, one version vector
 witnesses the other dot, so choosing the witnessing side selects a causal
 descendant rather than discarding concurrent information.  In the final case
-neither side witnesses the other dot; selecting either would lose an unseen
+neither side witnesses the other dot.  Selecting either would lose an unseen
 update, so the safe result is conflict retention.  Causal dominance and version
 vector join are independent of which replica is called local, idempotent, and
 commutative.  Replicas presented with the same frontier therefore select the
@@ -248,7 +248,7 @@ boundary.
     \draw[flow] (bgroup.south) -- (m1.north);
   \end{tikzpicture}
   \caption{Fragment-causal merge from a shared base.  A replaces position
-  \(f_0\) and B independently replaces \(f_1\); at each changed position the
+  \(f_0\) and B independently replaces \(f_1\).  At each changed position the
   writer's new dot causally dominates the other replica's base dot, so the
   merged head contains both updates.  If both replicas instead placed mutually
   unseen dots at the same position, the final case of
@@ -257,8 +257,8 @@ boundary.
 \end{figure}
 
 We use \emph{strain} for a coexisting head of one logical unit.  Unlike a
-repository branch, it does not name a repository-wide line of development;
-unlike a server fork, it does not imply equivocation by the transport.  It is
+repository branch, it does not name a repository-wide line of development.
+Unlike a server fork, it does not imply equivocation by the transport.  It is
 the retained, user-resolvable consequence of mutually unseen dots at one or
 more positions.
 
@@ -281,7 +281,7 @@ not expose filesystem operations to the service.
 The hosted implementation is a multi-tenant opaque store.  It authenticates
 accounts with SRP-6a, derives account scope from the bearer token rather than a
 client-supplied path, and persists opaque blocks and record frontiers.  Version
-vectors remain visible because the service maintains causal frontiers; the
+vectors remain visible because the service maintains causal frontiers.  The
 service also observes account identifiers, unit UUIDs, fragment indices and
 versions, object sizes and counts, timing, and access patterns.  It does not
 receive VFS paths, file metadata plaintext, content plaintext, or the client
@@ -289,7 +289,7 @@ root key in an encrypted profile.
 
 A live peer implements the same interface directly over an open \sfs{} engine.
 Transport calls become manifest projection, fragment export/import, and record
-frontier export/import; no second reconciliation algorithm is introduced.  A
+frontier export/import.  No second reconciliation algorithm is introduced.  A
 network peer authenticates possession of a root-key-derived P2P key using a
 single-use challenge.  Key grants are themselves container units and therefore
 propagate through hosted or peer topologies.  The service is thus a replaceable
@@ -303,20 +303,20 @@ semantics.
 A password is stretched with Argon2id into a 32-byte root key.  Domain-separated
 derivations produce the metadata key, header-MAC key, and one container-level
 key for each cryptographic content suite: 32 bytes for GCM and 64 bytes for XTS
-(two AES-256 halves).  These keys are suite-specific but not fragment-specific;
-fragment context supplies the nonce or tweak.  Unit records, catalog nodes,
+(two AES-256 halves).  These keys are suite-specific but not fragment-specific.
+Fragment context supplies the nonce or tweak.  Unit records, catalog nodes,
 filesystem metadata, paths, writer sets, and key material stored in the
 container are AES-GCM protected in v12.  Content is
 encoded per fragment as AES-256-GCM, AES-256-XTS, or plaintext.  GCM provides
-confidentiality and authentication; XTS is length-preserving confidentiality
-only; plaintext is an explicit benchmark/trusted-media mode.  Fragment context
+confidentiality and authentication.  XTS is length-preserving confidentiality
+only.  Plaintext is an explicit benchmark/trusted-media mode.  Fragment context
 binds UUID, position, causal version, and key epoch into nonce/tweak derivation.
 
 \begin{table}[t]
   \centering
   \small
   \caption{Content-suite claim boundary in v12.  Metadata remains AES-GCM in
-  every row; WriterSet is an additional requirement for the secure hosted
+  every row.  WriterSet is an additional requirement for the secure hosted
   profile.}
   \label{tab:cipher-profiles}
   \begin{tabular}{@{}llll@{}}
@@ -344,7 +344,7 @@ record: UUID, fragment dots, version vectors, geometry, and an optional
 application head.  Replica-local locations, parent pointers, pins, cipher
 encodings, and strain addresses are excluded so relocation, re-ciphering, and
 cross-replica import do not invalidate signatures.  The signature consequently
-authorizes and attributes a logical record frontier; it is not a per-fragment
+authorizes and attributes a logical record frontier.  It is not a per-fragment
 provenance proof or a content digest.  GCM authenticates content in the secure
 profile.
 
@@ -352,7 +352,7 @@ Removal is represented by a tombstone and is coupled to a higher key epoch.
 Root-key rotation re-encrypts live content, metadata, catalogs, and unresolved
 strains before atomically publishing the new epoch.  New root keys are sealed
 to retained members with ephemeral X25519/HKDF/AES-GCM grants.  A peer that has
-not yet received its matching grant remains safely on its old epoch; a retained
+not yet received its matching grant remains safely on its old epoch.  A retained
 peer can adopt the new key and writer set in one local publication.  Rotation is
 forward-only in v12: pre-rotation parent history and retention pins are not
 carried across the key boundary, while live conflict strains are.

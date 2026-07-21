@@ -25,7 +25,7 @@ operating range.  Remote and cloud-agent cases add links from roughly
 A useful evaluation should sweep link rate, RTT, and loss independently while
 varying writers and changed fragments, then report synchronization completion
 time, transferred bytes, CPU cost, and conflict visibility latency.  These are
-future evaluation parameters; the loopback TLS scenarios in this paper make no
+future evaluation parameters.  The loopback TLS scenarios in this paper make no
 claim about any point in that matrix.
 
 \subsection{Security Boundary}
@@ -33,7 +33,7 @@ claim about any point in that matrix.
 The strongest deployment claim is intentionally conditional.  End-to-end
 confidentiality and authenticated content require GCM content, the always-GCM
 metadata path, and WriterSet enforcement.  XTS content is confidential but
-malleable; plaintext content has no cryptographic protection.  Neither mode may
+malleable.  Plaintext content has no cryptographic protection.  Neither mode may
 inherit the full secure-SaaS claim merely because it uses the same transport.
 Even in the secure profile, the service learns the account, UUIDs, fragment
 indices and causal versions, version vectors, sizes, timing, and access
@@ -67,15 +67,15 @@ Two concurrent edits to different bytes in one fragment still conflict, and a
 size-band transition rewrites the complete logical unit under fresh dots and
 loses delta reuse against its old geometry.  The artifact's 32-MiB append
 regression records the bounded forward-growth case in
-\cref{subsec:eval-mechanisms}; it does not measure latency or repeated growth,
+\cref{subsec:eval-mechanisms}.  It does not measure latency or repeated growth,
 shrink, or oscillation around a boundary.  Manifest construction and comparison
-are linear in total unit and fragment metadata; only position lookup is
+are linear in total unit and fragment metadata.  Only position lookup is
 \(O(1)\).  Workloads dominated by insertion shifts or cross-file duplicates
 may prefer content-defined chunks or an application CRDT.
 
 History is bounded by policy and key epoch.  Named cuts pin required fragments
 against ordinary retention, but they are not an eternal-retention promise.
-Reclamation, retention expiry, defragmentation, and trim are explicit; the
+Reclamation, retention expiry, defragmentation, and trim are explicit.  The
 artifact has no background cleaner whose aged steady state is evaluated here.
 The three-region layout therefore needs long-duration fragmentation and
 space-amplification measurements under repeated overwrite, snapshot, sync, and
@@ -85,7 +85,7 @@ The alternating authenticated header is an atomic publication point, not a
 claim that every path is log-free or formally crash-safe.  The asynchronous
 mount path uses a WAL and bounded in-place changes use undo records.  The
 artifact contains crash-seam tests, but this paper reports no real power-cut or
-systematic block-reordering campaign.  Offline scanning is a recovery aid; its
+systematic block-reordering campaign.  Offline scanning is a recovery aid.  Its
 highest-address choice among unrelated orphan records is explicitly heuristic.
 
 \subsection{Surfaces and Format Maturity}
@@ -96,7 +96,7 @@ incomplete, and the FUSE view reports simplified link counts.  A FUSE mount and
 kernel mount must not open the same image concurrently because their lock
 domains do not meet.  The Linux kernel path is the evaluated high-performance
 encrypted path.  The FUSE encrypted-read deficit in
-\cref{subsec:eval-fuse} is characterized but unresolved; it matters when the
+\cref{subsec:eval-fuse} is characterized but unresolved.  It matters when the
 portable mount is expected to carry high-throughput encrypted reads.
 The profile decomposes \sfs{} itself but does not comparatively instrument
 gocryptfs, so it cannot attribute the threefold gap to splice, copying, or one
@@ -115,5 +115,5 @@ Finally, the reader accepts exactly v12 and provides no migration path from
 development formats.  A release can reasonably make this clean cut, but a
 long-lived application VFS needs a documented compatibility policy, migrations,
 and rollback tooling.  The published performance report preserves aggregate
-cells but not raw samples and per-run health logs; a durable research artifact
+cells but not raw samples and per-run health logs.  A durable research artifact
 should archive both and bind them to full source and environment manifests.

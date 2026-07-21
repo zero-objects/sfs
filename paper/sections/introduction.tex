@@ -23,9 +23,9 @@ for this resulting workload, not as a claim that the later mechanisms appeared
 in the original prompt.
 
 Local storage abstractions are usually divided by execution and trust boundary.
-A kernel filesystem owns raw media and POSIX semantics; a portable userspace
-filesystem places a container on another filesystem; a browser uses an
-in-memory or origin-private backend; and cloud synchronization converts local
+A kernel filesystem owns raw media and POSIX semantics.  A portable userspace
+filesystem places a container on another filesystem.  A browser uses an
+in-memory or origin-private backend.  Cloud synchronization converts local
 state into provider objects.  Snapshots or a version-control system add
 history, while an encrypting layer protects the remote copy.  The resulting
 stack works, but the boundaries duplicate identity, causality, indexing, and
@@ -44,12 +44,12 @@ client through persistence and synchronization.  The service should transport
 and retain state without ever receiving the content or metadata key.
 
 Prior systems cover large parts of this space.  Versioning filesystems retain
-past states~\citep{Santry1999Elephant,Soules2003CVFS,Peterson2005Ext3cow}; Coda,
+past states~\citep{Santry1999Elephant,Soules2003CVFS,Peterson2005Ext3cow}.  Coda,
 Ficus, and Ivy support optimistic replication~\citep{Kistler1992Coda,
-Reiher1994Ficus,Muthitacharoen2002Ivy}; Plutus, SiRiUS, SUNDR, and SPORC address
+Reiher1994Ficus,Muthitacharoen2002Ivy}.  Plutus, SiRiUS, SUNDR, and SPORC address
 sharing over untrusted storage under different threat
-models~\citep{Kallahalla2003Plutus,Goh2003SiRiUS,Li2004SUNDR,Feldman2010SPORC};
-and WNFS and Peergos combine encrypted, portable, collaborative
+models~\citep{Kallahalla2003Plutus,Goh2003SiRiUS,Li2004SUNDR,Feldman2010SPORC}.
+WNFS and Peergos combine encrypted, portable, collaborative
 storage~\citep{WNFSspec,Peergos}.  Ceph demonstrates one distributed object
 substrate behind file, block, and object interfaces~\citep{Weil2006Ceph}.
 Consequently, our claim is not that any one capability, nor the general idea of
@@ -64,12 +64,12 @@ map then provides four functions:
 
 \begin{enumerate}[leftmargin=1.6em,itemsep=2pt]
   \item it is the materialized current version and the index into retained
-    fragment history;
+    fragment history.
   \item it is the manifest used to identify missing or changed synchronization
-    payloads;
+    payloads.
   \item together with the version vector, it classifies concurrent updates per
     fragment, automatically merging disjoint changes and preserving overlapping
-    ones as strains; and
+    ones as strains.
   \item its logical identity is independent of physical location and backend,
     allowing the same container semantics in a raw-device kernel VFS, a
     userspace host-file VFS, an in-memory WebAssembly adapter, and an encrypted
@@ -81,7 +81,7 @@ application VFS.  Deterministic fixed-size fragments give constant-time
 offset-to-fragment addressing within a geometry band.  A double-buffered
 authenticated header is the atomic publication point, while an optional
 write-ahead log and bounded undo records cover asynchronous and in-place paths.
-Metadata is always protected by AES-GCM; content is selectable per fragment as
+Metadata is always protected by AES-GCM.  Content is selectable per fragment as
 GCM, XTS, or plaintext.  The secure application profile selects GCM content and
 an owner-signed writer set.  In that profile the service receives no content
 key, path, metadata plaintext, or content plaintext.  Account, object,
@@ -107,8 +107,8 @@ container-on-ext4 FUSE path only with matching stacks (\cref{sec:eval}).
     (\cref{subsec:mvcc,subsec:sync}).
   \item \textbf{Execution- and topology-independent storage}: one v12 logical
     format is implemented by a raw-device kernel VFS, a userspace host-file VFS,
-    the Rust engine and C ABI, and experimental in-memory WebAssembly bindings;
-    one synchronization protocol operates against either a blind multi-tenant
+    the Rust engine and C ABI, and experimental in-memory WebAssembly bindings.
+    One synchronization protocol operates against either a blind multi-tenant
     service or another live container, including propagation of concurrent
     frontiers, writer sets, and epoch-tagged key grants
     (\cref{subsec:transport,sec:impl}).
@@ -116,8 +116,8 @@ container-on-ext4 FUSE path only with matching stacks (\cref{sec:eval}).
     (\cref{subsec:commit,subsec:alloc}): a double-buffered, sequence-wins header
     commit plus fragment-granular copy-on-write and bounded undo records over a
     flat three-region allocator.  An optional WAL serves the asynchronous write
-    path.  File content avoids recursive path shadowing in a global CoW tree;
-    the catalog tries retain their own CoW cost.
+    path.  File content avoids recursive path shadowing in a global CoW tree.
+    The catalog tries retain their own CoW cost.
   \item \textbf{A controlled artifact evaluation}
     (\cref{sec:impl,sec:eval}): deterministic multi-replica scenarios for
     merge, retained conflict, resolution, hosted sync, and live-peer sync, plus
@@ -131,7 +131,7 @@ contribution.  It is useful evidence that the unit abstraction is not tied to
 POSIX paths, but the paper's subject is the backend and its VFS, SaaS, peer, and
 WebAssembly boundaries.
 
-\Cref{sec:background} defines the representation and positions the design;
-\cref{sec:design} gives its mechanisms and invariants; \cref{sec:impl,sec:eval}
-describe the artifact and evaluation; and \cref{sec:related,sec:discussion}
+\Cref{sec:background} defines the representation and positions the design.
+\Cref{sec:design} gives its mechanisms and invariants.  \Cref{sec:impl,sec:eval}
+describe the artifact and evaluation.  \Cref{sec:related,sec:discussion}
 separate the contribution from related systems and state its limits.

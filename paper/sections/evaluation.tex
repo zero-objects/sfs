@@ -19,7 +19,7 @@ multi-client scalability, or non-loopback LAN/WAN synchronization questions.
 The RC1 test matrix includes deterministic end-to-end scenarios for the
 distributed mechanisms, summarized in \cref{tab:mechanism-evidence}.  Each has
 a binary acceptance oracle over exact bytes, frontier cardinality, or an
-expected authorization result; none derives latency, throughput, conflict
+expected authorization result.  None derives latency, throughput, conflict
 probability, or scale from the scenario.
 
 \begin{table}[t]
@@ -39,20 +39,20 @@ probability, or scale from the scenario.
       remain stable on a second sync \\
     Same-fragment writes &
       two clients, hosted TLS service &
-      both retain two byte-exact strains; a selected resolution propagates and
+      both retain two byte-exact strains. A selected resolution propagates and
       collapses the remote frontier to one \\
     Late observer &
       two writers plus a fresh third client, hosted TLS service &
-      the third client reconstructs exact units and both unresolved strains;
+      the third client reconstructs exact units and both unresolved strains.
       a later fresh client observes the resolved frontier \\
     Live-peer topology &
       two containers, TLS on ephemeral loopback &
-      one sync transfers each peer's distinct unit in both directions;
+      one sync transfers each peer's distinct unit in both directions.
       wrong-key and unauthenticated access are rejected \\
     Hosted authorization &
       WriterSet clients and enforcing service &
-      member frontiers are accepted; non-member and revoked-writer frontiers
-      are rejected; stored-byte scans contain no injected plaintext markers \\
+      member frontiers are accepted. Non-member and revoked-writer frontiers
+      are rejected. Stored-byte scans contain no injected plaintext markers \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -75,7 +75,7 @@ publication-safe failure, and successful reopen.  A separate physical-footprint
 regression appends 512-KiB chunks to 32 MiB.  The fixture records a before/after
 observation of 62 MiB of allocated blocks, or \(1.94\times\) logical size,
 versus 146 MiB (\(4.58\times\)) for the superseded implementation that retained every
-re-chunked generation; the guard requires less than \(2.5\times\).  This
+re-chunked generation.  The guard requires less than \(2.5\times\).  This
 \texttt{st\_blocks} high-water proxy includes freed but not hole-punched
 intermediate generations.  It is neither a transition-latency result nor a
 long-term aging experiment, and the paper does not treat it as part of the
@@ -88,16 +88,16 @@ We compare within execution surfaces, not across them.  The kernel module uses
 a raw block device and is compared with ext4 on that device for plaintext and
 ext4 over LUKS for encrypted I/O.  The FUSE daemon stores an \sfs{} container
 on ext4 and is compared with fuse2fs for plaintext and gocryptfs for encrypted
-I/O.  Thus each ratio has a baseline in the same kernel/userspace class; a
+I/O.  Thus each ratio has a baseline in the same kernel/userspace class.  A
 kernel-to-FUSE ratio would answer a different question.
 
 The published campaign used kernel artifact \texttt{4cb3e28} and FUSE artifact
 \texttt{4a41dbeb}.  It ran on a Linux benchmark VM backed by a Samsung 960 EVO,
 using \texttt{fio}'s single-threaded \texttt{psync} engine.  Each cell is the
 arithmetic mean of ten fault-free runs.  The 14 request sizes range from 4 KiB
-through 2047 MiB; files are 1 GiB except for the 2047-MiB request, which uses a
+through 2047 MiB.  Files are 1 GiB except for the 2047-MiB request, which uses a
 2-GiB file.  The 2047-MiB endpoint stays below Linux's
-\texttt{MAX\_RW\_COUNT}; literal 2- and 4-GiB single requests fail for ext4 as
+\texttt{MAX\_RW\_COUNT}.  Literal 2- and 4-GiB single requests fail for ext4 as
 well and are therefore not \sfs{} limits.
 
 Every run starts with block discard, cache dropping, and a fresh mount.  Read
@@ -120,7 +120,7 @@ Tables~\ref{tab:kernel-perf} and
 where each \(\overline{x}\) is the arithmetic mean for one cell.  This gives
 equal multiplicative weight to each request size.  The repository report
 contains every per-size cell, but currently archives aggregates rather than
-the ten raw samples and their health logs; this prevents confidence intervals
+the ten raw samples and their health logs.  This prevents confidence intervals
 or an independent reanalysis of run-level variance.
 
 \subsection{Kernel Path}
@@ -129,7 +129,7 @@ or an independent reanalysis of run-level variance.
 \begin{table}[t]
   \centering
   \caption{Kernel-path throughput relative to its group baseline.  Values are
-  geometric means over 14 request sizes; larger is better.}
+  geometric means over 14 request sizes.  Larger is better.}
   \label{tab:kernel-perf}
   \begin{tabular}{lllr}
     \toprule
@@ -211,5 +211,5 @@ SSD, buffered single-threaded sequential I/O, and throughput rather than tail
 latency.  It does not exercise random I/O, metadata-heavy application traces,
 multiple queue depths, many writers, network delay, link rate,
 synchronization volume, or conflict frequency.  The data therefore validate a
-local data path and expose one FUSE weakness; they do not by themselves
+local data path and expose one FUSE weakness.  They do not by themselves
 validate the broader agentic-time workload at scale.

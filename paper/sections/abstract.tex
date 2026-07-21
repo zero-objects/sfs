@@ -13,7 +13,7 @@ sparse version vector and, for every fragment position, the causal dot of the
 bytes currently selected there.  The map is simultaneously a retained local
 lineage, a synchronization manifest, and the basis for sub-file conflict
 classification.  Concurrent updates to disjoint fragments merge without a
-content-specific CRDT; concurrent updates to the same fragment remain visible
+content-specific CRDT.  Concurrent updates to the same fragment remain visible
 as separate strains.
 
 Around this representation, \sfs{} combines deterministic fixed-size chunking,
@@ -22,7 +22,7 @@ synchronization, and an epoch-versioned multi-writer authorization model.  The
 same synchronization protocol operates against either a blind cloud store or a
 live peer.  In the secure deployment profile, content and metadata are
 client-side AES-GCM encrypted and accepted record frontiers are authorized by
-an owner-signed writer set; the service receives neither plaintext nor the keys
+an owner-signed writer set.  The service receives neither plaintext nor the keys
 needed to derive it.  A single v12 container format is implemented by a
 memory-safe Rust core, a FUSE adapter over host-file containers, an independent
 in-kernel C driver over raw devices, a C ABI, and experimental in-memory
@@ -43,8 +43,8 @@ and $1.11$--$1.20\times$ for encrypted cold reads.  The FUSE path reaches
 $3.11\times$ \texttt{fuse2fs} for plaintext writes and $1.70\times$ for
 plaintext cold reads, but only $0.33$--$0.38\times$ \texttt{gocryptfs} for
 encrypted cold reads.  These results establish a competitive native path and
-identify the userspace encrypted-read path as the principal performance limit;
-they do not constitute a general workload or scalability evaluation.  As a
+identify the userspace encrypted-read path as the principal performance limit.
+They do not constitute a general workload or scalability evaluation.  As a
 secondary result, an annex reports a NoSQL projection built without changing
 the core representation.
 \end{abstract}

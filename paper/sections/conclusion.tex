@@ -25,7 +25,7 @@ is at parity with or ahead of its ext4 and LUKS baselines in geometric mean.
 The portable path outperforms fuse2fs for plaintext I/O but retains a
 substantial encrypted-read gap against gocryptfs.  The scenarios and throughput
 data validate implemented mechanisms and show that the native fragment-causal
-path need not trade away local throughput; they do not yet validate multi-agent
+path need not trade away local throughput.  They do not yet validate multi-agent
 or non-loopback network scale.
 
 The contribution is therefore the substrate and common boundary: one
