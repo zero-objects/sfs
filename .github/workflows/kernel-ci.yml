@@ -64,45 +64,50 @@ jobs:
       - name: C harness — clean verify roundtrip fuzz
         run: make -C kernel/tools clean verify roundtrip fuzz
 
-  # ── Kernel module compile-only (catches "Rust format change silently breaks
-  #    C" and kernel-API drift, even if the runner kernel is not the 6.12 target)
-  module-compile:
-    name: sfs.ko compile-only (Linux)
+  # ── GATED: compile against the TARGET kernel series (6.12, the measurement
+  #    VM). Debian trixie ships 6.12, so its stock linux-headers give a faithful
+  #    target build. This is the real compile gate; a break here IS an rc issue.
+  module-compile-target:
+    name: sfs.ko compile (target 6.12)
     runs-on: ubuntu-latest
-    # Informational (continue-on-error): the driver targets Linux 6.12 (the
-    # measurement VM). GH-Actions runners now ship 6.17+, where some VFS helpers
-    # the driver uses have been renamed/removed (e.g. lookup_positive_unlocked ->
-    # lookup_one_positive_unlocked with an mnt_idmap arg). That is a
-    # newer-kernel-API-drift signal, NOT a defect in the 6.12 build, and it is
-    # not fixed here because it cannot be verified against a 6.17 kernel in this
-    # setup. The real loaded-module gate is the external 6.12 mount E2E
-    # (docs/RELEASE-CHECKLIST.md §2). Tracked: 6.17 VFS-API port.
+    container: debian:trixie
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install 6.12 headers + toolchain
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends \
+            linux-headers-amd64 build-essential git
+      - name: Build sfs.ko against 6.12
+        run: |
+          set -e
+          KDIR="$(ls -d /usr/src/linux-headers-*-amd64 2>/dev/null | grep -vi common | sort -V | tail -1)"
+          echo "Building against $(basename "$KDIR")"
+          test -n "$KDIR" && test -d "$KDIR"
+          make -C "$KDIR" M="$PWD/kernel" modules
+          ls -l "$PWD/kernel/sfs.ko"
+
+  # ── DRIFT SIGNAL (informational): compile against whatever the GH runner
+  #    ships (newer than the 6.12 target). Catches kernel-API drift early so the
+  #    next port is a known quantity; a failure here is a heads-up for a future
+  #    kernel, NOT an rc regression, hence continue-on-error.
+  module-compile-drift:
+    name: sfs.ko compile (runner kernel, drift signal)
+    runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-
       - name: Install kernel headers + toolchain
         run: |
           sudo apt-get update -qq
-          # Prefer the RUNNING kernel's headers; fall back to the generic
-          # package (a different point release still exercises the module's C
-          # and the VFS/crypto API surface — a compile check, not the 6.12
-          # target kernel used on the measurement VM).
-          if ! sudo apt-get install -y "linux-headers-$(uname -r)"; then
-            echo "exact headers unavailable — using linux-headers-generic"
-            sudo apt-get install -y linux-headers-generic
-          fi
+          sudo apt-get install -y "linux-headers-$(uname -r)" \
+            || sudo apt-get install -y linux-headers-generic
           sudo apt-get install -y build-essential
-
-      - name: Build sfs.ko (out-of-tree, compile-only)
+      - name: Build sfs.ko (out-of-tree)
         run: |
           set -e
-          KREL="$(uname -r)"
-          KDIR="/lib/modules/$KREL/build"
-          if [ ! -d "$KDIR" ]; then
-            # Running-kernel build dir missing: use the newest installed headers.
-            KDIR="$(find /lib/modules -maxdepth 2 -name build -type d | sort | tail -1)"
-          fi
+          KDIR="/lib/modules/$(uname -r)/build"
+          [ -d "$KDIR" ] || KDIR="$(find /lib/modules -maxdepth 2 -name build -type d | sort | tail -1)"
           echo "Building against $KDIR"
           test -n "$KDIR" && test -d "$KDIR"
           make -C "$KDIR" M="$GITHUB_WORKSPACE/kernel" modules
