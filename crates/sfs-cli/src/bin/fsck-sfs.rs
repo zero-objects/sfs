@@ -102,10 +102,19 @@ fn parse_args(argv: &[String]) -> Result<Opts, String> {
 }
 
 fn is_block_device(path: &Path) -> bool {
-    use std::os::unix::fs::FileTypeExt;
-    std::fs::metadata(path)
-        .map(|m| m.file_type().is_block_device())
-        .unwrap_or(false)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        std::fs::metadata(path)
+            .map(|m| m.file_type().is_block_device())
+            .unwrap_or(false)
+    }
+    // No block devices on non-Unix targets; fsck operates on a plain file there.
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 fn report_issues(prefix: &str, r: &fsck::FsckReport) {

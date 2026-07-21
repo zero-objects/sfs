@@ -87,14 +87,14 @@ jobs:
           make -C "$KDIR" M="$PWD/kernel" modules
           ls -l "$PWD/kernel/sfs.ko"
 
-  # ── DRIFT SIGNAL (informational): compile against whatever the GH runner
-  #    ships (newer than the 6.12 target). Catches kernel-API drift early so the
-  #    next port is a known quantity; a failure here is a heads-up for a future
-  #    kernel, NOT an rc regression, hence continue-on-error.
-  module-compile-drift:
-    name: sfs.ko compile (runner kernel, drift signal)
+  # ── GATED: compile against the current GH-runner kernel (newer than the 6.12
+  #    target — 6.17+ at time of writing). The driver's sfs_compat.h shims keep
+  #    it building across the range, so this gates too. If a future runner-kernel
+  #    bump introduces a new VFS API break, this turns red on purpose: that is
+  #    the signal to add the next compat shim, not something to mask.
+  module-compile-latest:
+    name: sfs.ko compile (latest runner kernel)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Install kernel headers + toolchain

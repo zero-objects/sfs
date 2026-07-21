@@ -10,11 +10,13 @@ jobs:
   build-and-test:
     name: Build & Test (${{ matrix.os }}, Rust ${{ matrix.rust }})
     runs-on: ${{ matrix.os }}
-    # Windows is informational (continue-on-error): the WinFsp mount binding is
-    # an external, resource-blocked gate (docs/RELEASE-CHECKLIST.md §3), and the
-    # winfsp-rs delay-load binding does not build in stock GH-Actions Windows
-    # without the WinFsp SDK + the `winfsp` feature. Linux and macOS gate.
-    continue-on-error: ${{ matrix.experimental || false }}
+    # All three OS gate (no continue-on-error). Windows builds the whole
+    # workspace EXCEPT zero-sfs-cli — that crate is Linux system-integration
+    # tooling (mkfs.sfs / mount.sfs / fsck.sfs / sfsd: mount helpers plus a
+    # systemd socket-activated daemon over Unix domain sockets and raw fds) and
+    # has no meaning on Windows. Every cross-platform crate is built, tested, and
+    # linted on all three OS. This is a documented platform boundary, not a
+    # masked failure.
     strategy:
       fail-fast: false
       matrix:
@@ -22,12 +24,11 @@ jobs:
         # stable bump, so `@stable` makes `-D warnings` non-reproducible and turns
         # a green tree red on the next release. 1.93.0 is the version rc.1 was
         # verified against. Bump deliberately, fixing new lints in the same change.
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         rust: ["1.93.0"]
         include:
           - os: windows-latest
-            rust: "1.93.0"
-            experimental: true
+            pkgargs: "--workspace --exclude zero-sfs-cli"
 
     steps:
       - name: Checkout repository
@@ -53,15 +54,16 @@ jobs:
       # ── Default workspace build + test (no FUSE feature) ─────────────────
       # Runs on all three OS without any native FUSE library installed.
       # sfs-mount is included in the workspace; the fuser/winfsp deps are
-      # optional and are NOT activated here.
+      # optional and are NOT activated here. On Windows, matrix.pkgargs excludes
+      # the Linux-only zero-sfs-cli crate (see the matrix comment).
       - name: Build workspace (no FUSE)
-        run: cargo build --workspace
+        run: cargo build ${{ matrix.pkgargs || '--workspace' }}
 
       - name: Run tests (no FUSE)
-        run: cargo test --workspace
+        run: cargo test ${{ matrix.pkgargs || '--workspace' }}
 
       - name: Clippy (no FUSE)
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy ${{ matrix.pkgargs || '--workspace' }} --all-targets -- -D warnings
 
       # ── FUSE feature build (Linux only, libfuse3 installed) ───────────────
       # Builds sfs-mount with --features fuse to verify the fuser dep resolves
