@@ -29,6 +29,7 @@
 #include <linux/namei.h>
 #include <linux/mnt_idmapping.h>	/* nop_mnt_idmap */
 #include <linux/slab.h>
+#include "sfs_compat.h"			/* sfs_lookup_one_positive() */
 #include <linux/string.h>
 
 #include "sfs_fs.h"
@@ -118,13 +119,11 @@ static struct dentry *sfs_walk_path(struct super_block *sb, const char *path,
 		if (seg == 0)
 			break;                       /* trailing slash / done */
 
-		/* Portable across the supported kernel range: the plain
-		 * lookup_positive_unlocked() was removed on newer kernels, but the
-		 * idmap-aware lookup_one_positive_unlocked() has the same
-		 * (idmap, name, base, len) signature on 6.12 and current. Path/fh
-		 * resolution is not idmapped, so the no-op idmap is correct. */
-		child = lookup_one_positive_unlocked(&nop_mnt_idmap,
-						     path + start, parent, seg);
+		/* Path/fh resolution is not idmapped, so the no-op idmap is
+		 * correct. sfs_lookup_one_positive() hides the cross-version
+		 * signature churn (see sfs_compat.h). */
+		child = sfs_lookup_one_positive(&nop_mnt_idmap,
+						path + start, parent, seg);
 		dput(parent);
 		if (IS_ERR(child))
 			return child;                /* -ENOENT etc. -> ESTALE */
