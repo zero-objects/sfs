@@ -1,0 +1,46 @@
+\section{A NoSQL Projection}
+\label{sec:annex-nosql}
+
+The \texttt{sfs-nosql} crate is an intentionally secondary experiment: if a
+unit need not be a pathname, can the fragment-causal engine support a document
+interface without becoming a second storage system?  It represents a record as
+a store name, a 128-bit primary key, and a sorted map from property names to
+typed values.  The value codec supports null, Boolean, signed 64-bit integer,
+IEEE-754 double, UTF-8 string, and byte-string values.  Records are ordinary
+\sfs{} units under an internal keyspace, so they reuse engine publication,
+history, encryption, and synchronization records.
+
+The projection implements put, get, delete, primary-key listing, and batched
+\texttt{put\_many}.  The batch executes all record and index updates under one
+engine transaction and one header publication.  Secondary index units map
+\((\mathit{store},\mathit{property},\mathit{value})\) to sorted primary-key
+sets, supporting equality and inclusive same-type range queries.  Large opaque
+values can use \texttt{put\_unindexed}; they remain addressable by primary key
+but are intentionally absent from secondary queries.
+
+The more informative experiment is property-granular merge.  A patchable record
+uses a 4-KiB directory slot followed by one aligned 4-KiB slot per property.
+Changing an existing property rewrites its slot and the affected secondary
+index entries in one transaction, leaving the causal dots of other property
+fragments unchanged.  The artifact scenario starts two replicas from one
+record, changes property \texttt{alpha} on one and \texttt{beta} on the other,
+then imports the changed fragment: both values appear in one strain.  Repeating
+the scenario with whole-record writes produces concurrent strains.  This is a
+direct demonstration that application layout can expose semantic independence
+to the same fragment merge rule used for files.
+
+The result is not a general NoSQL claim.  Records are flat rather than nested,
+there is no query planner, distributed transaction protocol, or database
+benchmark, and indexed values must fit the internal trie-key bound.  The current
+slotted scheme is especially narrow: the directory and every value must each
+fit 4 KiB, and the complete image must remain below the 16-KiB geometry
+transition.  With one directory slot, that permits at most two property slots
+in the present implementation.  Adding a property rewrites the directory and
+requires a full patchable put.
+
+Finally, the merge scenario drives record and fragment import directly; it does
+not run the full \texttt{SyncEngine} or establish convergence of secondary
+indexes after two remote property patches.  Thus the annex supports one
+resolution claim---a fragment-causal backend can be projected into
+property-granular merge by layout---while leaving distributed index repair and
+a production document model as future work.

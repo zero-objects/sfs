@@ -1,0 +1,136 @@
+\section{Implementation}
+\label{sec:impl}
+
+The RC1 artifact is a Rust workspace plus an independent Linux kernel
+implementation. Tagged source and release artifacts are available from the
+project repository; published Cargo packages use the \texttt{zero-sfs-*}
+prefix~\citep{SfsArtifact2026}. \Cref{tab:artifact} summarizes the paths
+relevant to this paper. Operational service features such as proxy deployment,
+rate limiting, health endpoints, and recovery-code handling are implemented
+but are not treated as research contributions.
+
+\begin{table}[t]
+  \centering
+  \small
+  \caption{Principal implementations over the v12 logical format.}
+  \label{tab:artifact}
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    Component & Physical backend & Role \\
+    \midrule
+    Rust core & file or memory & format, MVCC, crypto, recovery \\
+    Linux kernel VFS & raw block device & native mounted filesystem \\
+    FUSE adapter & container file on host FS & portable mounted filesystem \\
+    Sync/SaaS & opaque network objects & hosted or peer replication \\
+    WebAssembly adapter & in-memory image & browser/application VFS API \\
+    C ABI/tools & Rust core & embedding, inspection, repair \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Rust Format Authority}
+
+The core engine forbids unsafe Rust and does not depend on a general-purpose
+serialization framework.  Header, catalog, unit-record, writer-set, key-grant,
+WAL, and eviction formats are length-checked binary codecs.  The file backend
+uses positioned reads and writes; the memory backend exposes the same byte
+image through an in-memory vector.  Both follow the same open path, including
+header authentication, catalog and allocator reconstruction, and WAL recovery.
+
+The current reader accepts exactly format v12.  This clean-cut policy prevents
+silent interpretation of development-era formats, but it is not a format
+stability promise: no migration implementation is included.  Cross-language
+constants and derivations, including the fragment-size staircase and cipher
+contexts, are recorded as golden vectors.  The artifact also includes hostile
+decoder tests and six coverage-guided fuzz targets for unit records, commits,
+eviction records, writer sets, key grants, and NoSQL records.
+
+\subsection{Raw-Device Linux VFS}
+
+The kernel path is an independent C implementation mounted directly on a block
+device.  It parses and publishes the same headers, catalogs, unit records,
+fragment geometry, encryption contexts, and writer state as the Rust engine.
+The driver integrates with the Linux page cache and provides the broad VFS
+subset needed by the evaluated filesystem: files and directories, read/write,
+truncate, rename, symlinks, attributes, extended attributes and ACLs, and
+filesystem statistics.  The implementation is intentionally described as an
+experimental VFS rather than as complete POSIX conformance; remaining alias and
+link-count semantics are listed in \cref{sec:discussion}.
+
+Keeping the driver independent is useful evidence for format specificity: the
+kernel does not call into the Rust engine or mount a userspace proxy.  C/Rust
+round-trip fixtures and byte-level known-answer vectors guard the shared
+format.  Loaded-module, target-kernel, and KASAN campaigns remain external
+artifact gates because hosted CI can compile but cannot safely load the module
+or provide a disposable block device.
+
+\subsection{Portable Host-File VFS}
+
+The FUSE adapter embeds the Rust engine and stores one container file on a host
+filesystem.  This adds a userspace transition and a second filesystem layer,
+but works without a kernel module and carries the complete engine feature set.
+The adapter coalesces writes into explicit publication batches and implements
+sequence-detecting read-ahead: a handle prefetches only after observing
+sequential access, avoiding the prior random-read overfetch and memory pressure.
+The same adapter layer contains macFUSE and WinFsp integration points, although
+this paper evaluates only the Linux FUSE path and does not claim real-platform
+validation for macOS or Windows.
+
+The mounted surface exposes conflicts through extended attributes and maps
+engine integrity failures to I/O errors rather than returning fabricated data.
+FUSE and the kernel driver must not mount the same image concurrently: the
+userspace advisory lock is taken on the container-file inode and cannot
+coordinate with a block-device mount.
+
+\subsection{Encrypted Hosted Storage and Peer Service}
+
+The synchronization crate contains the transport-independent reconciliation
+engine.  Its in-memory transport is used for model and integration tests; the
+production network client uses a compact binary wire format over TLS.  Batched
+fragment requests amortize HTTP and authentication overhead.  The hosted
+service supports direct TLS over HTTP/1.1, HTTP/2, and HTTP/3, or operation
+behind a trusted TLS-terminating proxy.  Authentication uses SRP-6a followed by
+scoped bearer tokens; no password-equivalent value is sent during login.
+
+Persistent server state is itself stored through an \sfs{} engine for account
+and frontier metadata, with a separate append-oriented block-blob store for
+large opaque payloads.  This is server-side operational encryption in addition
+to, not a replacement for, the client's end-to-end container encryption.  The
+service can verify signed record projections when writer enforcement is
+enabled; the deployed binary enables that policy by default.  It still cannot
+interpret client paths, VFS metadata, or content in the secure profile.
+
+The peer daemon reuses the hosted \texttt{/v1} wire and network client but
+replaces the server store with an \texttt{EngineTransport} over a live
+container.  A root-key-possession challenge replaces SRP.  This implementation
+choice is what makes hosted and peer synchronization two topologies of one
+protocol rather than two replication systems.
+
+\subsection{WebAssembly and Embedded VFS}
+
+The WebAssembly crate exposes container creation, password and raw-key opening,
+file and directory creation, offset writes, truncate, read, list, and snapshot
+operations through \texttt{wasm-bindgen}.  It uses the core memory backend, so
+the byte vector returned by \texttt{snapshot} is the same container image that
+the file backend and native VFS implementations open.  Password salts and
+nonces route through the browser randomness backend; the core disables its
+native thread-based decrypt pool for wasm and uses the serial path.
+
+The implementation establishes a source-level browser boundary, not yet a
+browser deployment result.  Native tests exercise the wasm-selected core logic,
+but the RC1 evidence does not include a hosted \texttt{wasm32-unknown-unknown}
+build, JavaScript end-to-end test, or persistent OPFS/IndexedDB backend.  We
+therefore call the bindings experimental throughout the paper.  Their relevance
+is architectural: an application can own a complete encrypted VFS image and
+hand only encrypted synchronization objects to the service, using the same
+format and key model as the native clients.
+
+\subsection{Artifact Evidence}
+
+The source tree contains unit, property, integration, network, crash-seam, and
+cross-format tests.  Relevant fixtures cover crashes before header publication
+and round trips for GCM, XTS, and plaintext.  Further scenarios exercise signed
+record and writer-set rejection, concurrent frontiers, third-replica
+convergence, hosted and peer transports, and C/Rust golden vectors.  These tests
+are evidence for implemented paths, not a formal proof of correctness or an
+independent security audit.

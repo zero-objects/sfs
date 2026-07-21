@@ -1,0 +1,15 @@
+# sfsd control socket — systemd socket activation (WS12 12.6)
+#
+# The daemon (sfsd.service) receives this listening socket as fd 3 via
+# $LISTEN_FDS, so it need not be running until the first client connects.
+[Unit]
+Description=sfs local daemon control socket
+PartOf=sfsd.service
+
+[Socket]
+ListenStream=/run/sfs/sfsd.sock
+SocketMode=0600
+DirectoryMode=0700
+
+[Install]
+WantedBy=sockets.target

@@ -1,0 +1,114 @@
+% ============================================================================
+% Fragment-Causal Storage as a Common Substrate: the sfs artifact
+% arXiv preprint skeleton
+% ============================================================================
+\documentclass[a4paper, 11pt, twoside]{article}
+
+% ── Encoding & language ────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{csquotes}
+
+% ── Fonts ──────────────────────────────────────────────────────────────────
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% ── Page layout ─────────────────────────────────────────────────────────────
+\usepackage[
+  top=2.5cm,
+  bottom=2.5cm,
+  left=2.8cm,
+  right=2.8cm,
+]{geometry}
+
+% ── Math (light — this is a systems paper) ─────────────────────────────────
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+% ── Graphics, tables, code, algorithms ─────────────────────────────────────
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{subcaption}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta, fit, backgrounds}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+% ── Code listing style ──────────────────────────────────────────────────────
+\lstset{
+  basicstyle=\ttfamily\small,
+  columns=fullflexible,
+  keepspaces=true,
+  breaklines=true,
+  frame=none,
+}
+
+% ── Colors & hyperref ──────────────────────────────────────────────────────
+\usepackage[dvipsnames, svgnames]{xcolor}
+\usepackage[
+  colorlinks=true,
+  linkcolor=NavyBlue,
+  citecolor=ForestGreen,
+  urlcolor=RoyalBlue,
+]{hyperref}
+\usepackage[nameinlink, capitalise, noabbrev]{cleveref}
+
+% ── Bibliography ────────────────────────────────────────────────────────────
+\usepackage[numbers, sort&compress]{natbib}
+\bibliographystyle{plainnat}
+
+% ── Convenience macros ──────────────────────────────────────────────────────
+\newcommand{\sfs}{\textsc{sfs}}
+\newcommand{\eg}{e.g.,\ }
+\newcommand{\ie}{i.e.,\ }
+
+% ── Document metadata ───────────────────────────────────────────────────────
+\title{\textsc{sfs}: A Fragment-Causal Filesystem Substrate for Agentic Time\\
+  across Machines, Encrypted SaaS, and WebAssembly}
+
+\author{%
+  Sandra Theresa Ke\ss{}ler\thanks{%
+    Independent researcher. Correspondence:
+    \texttt{mail@sandra-kessler.net}.}%
+}
+
+\date{July 2026}
+
+% ============================================================================
+\begin{document}
+% ============================================================================
+
+\maketitle
+
+\input{sections/abstract}
+
+\input{sections/introduction}
+
+\input{sections/background}
+
+\input{sections/design}
+
+\input{sections/implementation}
+
+\input{sections/evaluation}
+
+\input{sections/related_work}
+
+\input{sections/discussion}
+
+\input{sections/conclusion}
+
+\appendix
+
+\input{sections/annex_nosql}
+
+% ── Bibliography ──
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,28 @@
+[package]
+name = "zero-sfs-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "sfs workload and observability CLI (Phase 4 / Task 3)"
+
+[dependencies]
+sfs-core   = { path = "../sfs-core", package = "zero-sfs-core", features = ["stats"] }
+serde_json = "1"
+tempfile   = { workspace = true }
+
+[dev-dependencies]
+serde_json = "1"
+
+[[bin]]
+name = "sfs-bench"
+path = "src/bin/sfs-bench.rs"
+
+[[test]]
+name = "bench_smoke"
+path = "tests/bench_smoke.rs"
+
+[lib]
+name = "sfs_bench"

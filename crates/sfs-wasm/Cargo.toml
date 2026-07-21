@@ -1,0 +1,37 @@
+[package]
+name = "zero-sfs-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "sfs-core WASM adapter — create, write, sign, open, list and read sfs containers from JS/Browser"
+
+[lib]
+name = "sfs_wasm"
+# cdylib: the wasm artifact linked by wasm-bindgen / wasm-pack.
+# rlib:   lets `cargo test -p zero-sfs-wasm` build a native test harness that links
+#         the crate (a pure-cdylib crate cannot be unit-tested on the host).
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# `wasm` feature: forces sfs-core's serial fragment-decrypt path (no std::thread
+# pool), which wasm32 cannot run.  See sfs-core/src/version/store.rs.
+sfs-core = { path = "../sfs-core", package = "zero-sfs-core", features = ["wasm"] }
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+
+# ── getrandom on wasm32 ───────────────────────────────────────────────────────
+# Two `getrandom` versions are pulled in transitively and each emits a hard
+# `compile_error!` on wasm32-unknown-unknown unless a browser backend is selected
+# (needed to *compile* at all, and — Schritt 2 — at *runtime* for GCM nonces and
+# the Argon2id salt on the write path):
+#   * getrandom 0.3 (direct sfs-core dep): enable the `wasm_js` feature AND set
+#     `--cfg getrandom_backend="wasm_js"` (see .cargo/config.toml).
+#   * getrandom 0.2 (via rand_core → ed25519/x25519-dalek): enable its `js` feature.
+# Both back onto the browser's `crypto.getRandomValues`, which the write path
+# (nonce / salt generation) draws from at runtime.  Native builds are untouched.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }

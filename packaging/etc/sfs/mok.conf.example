@@ -1,0 +1,13 @@
+# MOK signing key for the DKMS Secure-Boot sign hook (WS12 12.5).
+# Installed to /etc/sfs/mok.conf.  Leave unset on non-Secure-Boot hosts.
+#
+# Generate once:
+#   openssl req -new -x509 -newkey rsa:2048 -nodes -days 36500 \
+#     -keyout /var/lib/shim-signed/mok/sfs_mok.key \
+#     -out    /var/lib/shim-signed/mok/sfs_mok.crt \
+#     -subj "/CN=sfs module signing/"
+#   openssl x509 -in .../sfs_mok.crt -outform DER -out .../sfs_mok.der
+#   mokutil --import /var/lib/shim-signed/mok/sfs_mok.der   # then reboot & enroll
+#
+#SFS_MOK_KEY=/var/lib/shim-signed/mok/sfs_mok.key
+#SFS_MOK_CRT=/var/lib/shim-signed/mok/sfs_mok.crt

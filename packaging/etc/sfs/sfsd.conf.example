@@ -1,0 +1,14 @@
+# sfsd.service configuration (WS12 12.6).  Installed to /etc/sfs/sfsd.conf.
+#
+# Container / device the daemon serves.  Prefer a stable by-uuid path.
+SFSD_CONTAINER=/dev/disk/by-uuid/CHANGE-ME
+
+# Extra sfsd arguments: key source, host alias, sync mirror, etc.
+#   --key-file /etc/sfs/vault.key
+#   --alias 1
+#   --account myvault
+#   --mirror /srv/sfs/mirror.sfs --mirror-key-file /etc/sfs/vault.key
+SFSD_ARGS=--key-file /etc/sfs/vault.key
+
+# For a --password container instead, drop --key-file above and set:
+# SFS_PASSWORD=...   (keep this file mode 0640, root only)

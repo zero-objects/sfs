@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sfs-core",
+    "crates/sfs-bench",
+    "crates/sfs-ffi",
+    "crates/sfs-wasm",
+    "crates/sfs-mount",
+    "crates/sfs-sync",
+    "crates/sfs-saas",
+    "crates/sfs-tools",
+    "crates/sfs-nosql",
+    "crates/sfs-cli",
+]
+
+[workspace.package]
+version = "1.0.0-rc.1"
+edition = "2021"
+# 1.89: std file locking (File::try_lock, P8.7a container lock);
+# 1.87: u64::is_multiple_of (clippy 1.95 manual_is_multiple_of)
+rust-version = "1.89"
+authors = ["Sandra Theresa Keßler"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/zero-objects/sfs"
+homepage = "https://github.com/zero-objects/sfs"
+
+# KDF/AEAD crates are 30-60x slower unoptimized; without this, Argon2id-heavy
+# E2E tests (zk_proof_e2e) take hours in local debug runs (DH-7).
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.aes]
+opt-level = 3
+[profile.dev.package.aes-gcm]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.ghash]
+opt-level = 3
+[profile.dev.package.polyval]
+opt-level = 3
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+
+[workspace.dependencies]
+thiserror       = "1.0"
+aes-gcm         = "0.10"
+aes             = "0.8"
+xts-mode        = "0.5"
+hkdf            = "0.12"
+hmac            = "0.12"
+sha2            = "0.10"
+crc32fast       = "1.4"
+getrandom       = "0.3"
+tempfile        = "3"
+ed25519-dalek   = "2"
+zeroize         = "1"
+x25519-dalek    = { version = "2", features = ["static_secrets"] }

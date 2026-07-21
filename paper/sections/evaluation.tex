@@ -1,0 +1,215 @@
+\section{Evaluation}
+\label{sec:eval}
+
+The evaluation asks four deliberately bounded questions.  \textbf{RQ1:} Do
+independent replicas exhibit the advertised disjoint-fragment merge,
+same-fragment strain, resolution, and transport behavior in controlled
+end-to-end scenarios?  \textbf{RQ2:} Does the native kernel path remain
+competitive with the conventional Linux block stack for sequential I/O?
+\textbf{RQ3:} What portability cost does the FUSE path impose relative to a
+FUSE filesystem with comparable encryption?  And \textbf{RQ4:} are the
+reported throughput samples free of the process leaks, out-of-memory
+terminations, and silent zero results that can invalidate a long storage
+campaign?  We do not use these experiments to answer metadata-workload,
+multi-client scalability, or non-loopback LAN/WAN synchronization questions.
+
+\subsection{Functional Multi-Replica Evidence}
+\label{subsec:eval-mechanisms}
+
+The RC1 test matrix includes deterministic end-to-end scenarios for the
+distributed mechanisms, summarized in \cref{tab:mechanism-evidence}.  Each has
+a binary acceptance oracle over exact bytes, frontier cardinality, or an
+expected authorization result; none derives latency, throughput, conflict
+probability, or scale from the scenario.
+
+\begin{table}[t]
+  \centering
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \caption{Controlled mechanism scenarios in the RC1 artifact.  These are
+  correctness fixtures, not workload or scalability measurements.}
+  \label{tab:mechanism-evidence}
+  \begin{tabular}{@{}p{0.19\linewidth}p{0.22\linewidth}p{0.50\linewidth}@{}}
+    \toprule
+    Mechanism & Controlled topology & Acceptance oracle \\
+    \midrule
+    Disjoint writes &
+      two replicas, opaque local transport &
+      both replicas read the exact combined fragments, expose no conflict, and
+      remain stable on a second sync \\
+    Same-fragment writes &
+      two clients, hosted TLS service &
+      both retain two byte-exact strains; a selected resolution propagates and
+      collapses the remote frontier to one \\
+    Late observer &
+      two writers plus a fresh third client, hosted TLS service &
+      the third client reconstructs exact units and both unresolved strains;
+      a later fresh client observes the resolved frontier \\
+    Live-peer topology &
+      two containers, TLS on ephemeral loopback &
+      one sync transfers each peer's distinct unit in both directions;
+      wrong-key and unauthenticated access are rejected \\
+    Hosted authorization &
+      WriterSet clients and enforcing service &
+      member frontiers are accepted; non-member and revoked-writer frontiers
+      are rejected; stored-byte scans contain no injected plaintext markers \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The fixtures are implemented under \path{crates/sfs-sync/tests} and
+\path{crates/sfs-saas/tests} as
+\texttt{conflict\_e2e}, \texttt{net\_e2e},
+\texttt{p2p\_net\_e2e}, \texttt{enforcement\_e2e}, and
+\texttt{zk\_proof\_e2e}.  Together they answer RQ1 at the mechanism level:
+the advertised reconciliation outcomes cross both an opaque hosted transport
+and a live network peer, and an unresolved frontier remains discoverable by a
+client that did not participate in the conflict.  They do not answer how often
+those outcomes occur in a repository or how their cost grows with agents,
+files, latency, or history.
+
+The artifact also guards the re-chunk boundary called out by the geometry
+design.  Functional fixtures grow a unit from 4-KiB to 256-KiB fragments,
+require byte-exact content, fresh causal dots, preserved pinned history,
+publication-safe failure, and successful reopen.  A separate physical-footprint
+regression appends 512-KiB chunks to 32 MiB.  The fixture records a before/after
+observation of 62 MiB of allocated blocks, or \(1.94\times\) logical size,
+versus 146 MiB (\(4.58\times\)) for the superseded implementation that retained every
+re-chunked generation; the guard requires less than \(2.5\times\).  This
+\texttt{st\_blocks} high-water proxy includes freed but not hole-punched
+intermediate generations.  It is neither a transition-latency result nor a
+long-term aging experiment, and the paper does not treat it as part of the
+fault-gated throughput campaign below.
+
+\subsection{Method}
+\label{subsec:eval-method}
+
+We compare within execution surfaces, not across them.  The kernel module uses
+a raw block device and is compared with ext4 on that device for plaintext and
+ext4 over LUKS for encrypted I/O.  The FUSE daemon stores an \sfs{} container
+on ext4 and is compared with fuse2fs for plaintext and gocryptfs for encrypted
+I/O.  Thus each ratio has a baseline in the same kernel/userspace class; a
+kernel-to-FUSE ratio would answer a different question.
+
+The published campaign used kernel artifact \texttt{4cb3e28} and FUSE artifact
+\texttt{4a41dbeb}.  It ran on a Linux benchmark VM backed by a Samsung 960 EVO,
+using \texttt{fio}'s single-threaded \texttt{psync} engine.  Each cell is the
+arithmetic mean of ten fault-free runs.  The 14 request sizes range from 4 KiB
+through 2047 MiB; files are 1 GiB except for the 2047-MiB request, which uses a
+2-GiB file.  The 2047-MiB endpoint stays below Linux's
+\texttt{MAX\_RW\_COUNT}; literal 2- and 4-GiB single requests fail for ext4 as
+well and are therefore not \sfs{} limits.
+
+Every run starts with block discard, cache dropping, and a fresh mount.  Read
+results are consequently cold-cache results.  The fixture inspects kernel
+messages, OOM events, leaked daemons, and available memory after each run and
+excludes a run on any such fault.  The final campaign reported zero faults, so
+all ten samples entered every cell.  Source, on-filesystem, and cold-read hashes
+were also compared for the plaintext, XTS, and GCM paths before accepting the
+campaign.
+
+The checked-in aggregate is
+\texttt{docs/perf/perf-report-2026-07-20.html}.  For compact comparison,
+Tables~\ref{tab:kernel-perf} and
+\ref{tab:fuse-perf} report the geometric mean of the 14 per-size ratios
+\[
+  R_{\mathrm{geo}} =
+  \exp\!\left(\frac{1}{14}\sum_{i=1}^{14}
+  \ln\frac{\overline{x}_{\sfs{},i}}{\overline{x}_{\mathrm{base},i}}\right),
+\]
+where each \(\overline{x}\) is the arithmetic mean for one cell.  This gives
+equal multiplicative weight to each request size.  The repository report
+contains every per-size cell, but currently archives aggregates rather than
+the ten raw samples and their health logs; this prevents confidence intervals
+or an independent reanalysis of run-level variance.
+
+\subsection{Kernel Path}
+\label{subsec:eval-kernel}
+
+\begin{table}[t]
+  \centering
+  \caption{Kernel-path throughput relative to its group baseline.  Values are
+  geometric means over 14 request sizes; larger is better.}
+  \label{tab:kernel-perf}
+  \begin{tabular}{lllr}
+    \toprule
+    Content & Operation & Baseline & \sfs{}/baseline \\
+    \midrule
+    Plain & write & ext4-raw & \(1.22\times\) \\
+    Plain & cold read & ext4-raw & \(0.98\times\) \\
+    XTS & write & LUKS-ext4 & \(0.99\times\) \\
+    GCM & write & LUKS-ext4 & \(0.98\times\) \\
+    XTS & cold read & LUKS-ext4 & \(1.20\times\) \\
+    GCM & cold read & LUKS-ext4 & \(1.11\times\) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Table~\ref{tab:kernel-perf} answers RQ2 for this sequential, queue-depth-one
+workload.  Plain writes are faster than ext4 on average, while plain reads and
+encrypted writes are at parity under a \(0.98\times\) convention.  Encrypted
+cold reads exceed the LUKS-ext4 baseline for both ciphers.  These are
+geometric summaries, not universal dominance: individual cells can lose.  In
+particular, the 2047-MiB encrypted-write endpoint is approximately
+\(0.81\times\) LUKS.  The result supports the narrower claim that native
+fragment versioning and authenticated metadata do not introduce an inherent
+sequential-throughput penalty on this device and workload.
+
+\subsection{FUSE Path}
+\label{subsec:eval-fuse}
+
+\begin{table}[t]
+  \centering
+  \caption{FUSE-path throughput relative to its group baseline, computed as in
+  Table~\ref{tab:kernel-perf}.}
+  \label{tab:fuse-perf}
+  \begin{tabular}{lllr}
+    \toprule
+    Content & Operation & Baseline & \sfs{}/baseline \\
+    \midrule
+    Plain & write & fuse2fs & \(3.11\times\) \\
+    Plain & cold read & fuse2fs & \(1.70\times\) \\
+    XTS & write & gocryptfs & \(0.87\times\) \\
+    GCM & write & gocryptfs & \(0.85\times\) \\
+    XTS & cold read & gocryptfs & \(0.38\times\) \\
+    GCM & cold read & gocryptfs & \(0.33\times\) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The portable path has two distinct regimes.  Sequence-detecting read-ahead
+lets plaintext \sfs{} outperform fuse2fs for both reads and writes, showing
+that the FUSE boundary alone is not the limiting factor.  Encrypted writes are
+13--15\% below gocryptfs.  Encrypted cold reads are the clear remaining
+weakness: XTS reaches \(0.38\times\) and GCM \(0.33\times\) of gocryptfs in the
+geometric mean.  At large requests the corresponding ratios rise only to
+approximately \(0.43\times\) and \(0.38\times\).
+
+Profiling attributes approximately 40\% of the encrypted-read time to
+parallel AES-NI decryption, 19\% to container reads, and 32\% to FUSE reply,
+system-call, and backpressure work, with the remainder in buffer movement.
+This is a mixed end-to-end userspace ceiling, not evidence for one removable
+\texttt{splice} or library bottleneck: the plaintext path reaches roughly
+1.5 GB/s through the same reply implementation, and the compared gocryptfs
+read path does not establish a zero-copy explanation.  Closing the gap would
+therefore require a separate buffer-ownership and pipeline study.  The result
+answers RQ3 honestly: FUSE is a useful portable path, but it is not the
+performance path for encrypted sequential reads in this release.
+
+\subsection{Fault Discipline and Scope}
+\label{subsec:eval-validity}
+
+A preliminary campaign was discarded in full after externally unmounted FUSE
+daemons failed to exit, accumulated, and eventually caused OOM kills and
+zero-valued cells.  No number from that campaign appears here.  The daemon exit
+was corrected and the per-run health gate described above was added before the
+reported campaign.  This experience is why RQ4 is part of the evaluation: ten
+repetitions do not improve a result if failed runs silently enter the mean.
+
+The remaining validity limits are material.  The campaign uses one VM, one
+SSD, buffered single-threaded sequential I/O, and throughput rather than tail
+latency.  It does not exercise random I/O, metadata-heavy application traces,
+multiple queue depths, many writers, network delay, link rate,
+synchronization volume, or conflict frequency.  The data therefore validate a
+local data path and expose one FUSE weakness; they do not by themselves
+validate the broader agentic-time workload at scale.

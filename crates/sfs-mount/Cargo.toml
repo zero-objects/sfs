@@ -1,0 +1,81 @@
+[package]
+name         = "zero-sfs-mount"
+version.workspace = true
+edition      = "2021"
+rust-version.workspace = true
+authors      = ["Sandra Theresa Keßler"]
+license      = "MIT OR Apache-2.0"
+repository.workspace = true
+description  = "FUSE/macFUSE/WinFsp mount adapter for sfs containers"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Feature flags
+#
+# Default features enable NEITHER FUSE binding so the crate builds on any host
+# without libfuse / macFUSE / WinFsp installed. Each OS-specific binding is
+# behind an explicit opt-in feature:
+#
+#   cargo build --features fuse        (unix + libfuse3 present)
+#   cargo build --features winfsp      (windows + WinFsp installed)
+#
+# The OS-agnostic adapter logic (inode, attr, wbcache, FsAdapter) has no FUSE
+# dependency and is fully testable locally on macOS / CI without any native FS
+# library.
+# ──────────────────────────────────────────────────────────────────────────────
+[features]
+default = []
+
+# Expose sfs-core's commit-profile event counters (fsync count, physical bytes)
+# to adapter-level tests. Used by the FUSE-path large-overwrite regression guard
+# (write_back.rs) to prove an in-place overwrite through the adapter issues O(1)
+# fsync barriers, not O(fragments) — the mechanism behind the historical
+# ≥256-MiB sfs-mount D-state wedge (fixed by the core fsync-coalescing change).
+commit_profile = ["sfs-core/commit_profile"]
+
+# Enable the fuser-based FUSE binding (Linux + macFUSE). Requires libfuse3-dev
+# (Linux) or macFUSE (macOS) to be installed on the build host.  Also pulls in
+# `ctrlc` so the `sfs-mount` binary unmounts cleanly on Ctrl-C / SIGTERM.
+fuse = ["dep:fuser", "dep:ctrlc"]
+
+# Enable the winfsp-based Windows binding. Requires WinFsp to be installed and
+# a build.rs calling winfsp_link_delayload().  Also pulls in `ctrlc` for the
+# binary's clean-shutdown handler.
+winfsp = ["dep:winfsp", "dep:winfsp-sys", "dep:ctrlc"]
+
+[[bin]]
+name = "sfs-mount"
+path = "src/bin/sfs-mount.rs"
+
+[dependencies]
+sfs-core  = { path = "../sfs-core", package = "zero-sfs-core" }
+crc32fast = { workspace = true }
+
+# Optional FUSE binding — compiled only when the `fuse` feature is enabled.
+# fuser 0.17.0; MIT licence; wraps libfuse (Linux) / macFUSE (macOS).
+# Build requirement: libfuse3-dev on Linux, macFUSE 4.x on macOS.
+fuser = { version = "0.17", optional = true }
+
+# Optional signal handler for the `sfs-mount` binary — only compiled when a
+# mount binding feature is on.  ctrlc 3.x; MIT OR Apache-2.0; cross-platform
+# (SIGINT/SIGTERM/SIGHUP on unix, Ctrl-C/Ctrl-Break on Windows).
+ctrlc = { version = "3", optional = true, features = ["termination"] }
+
+# ── Windows-only deps ─────────────────────────────────────────────────────────
+# Optional Windows binding — compiled only on Windows when the `winfsp` feature
+# is enabled. winfsp 0.13.0+winfsp-2.1 (GPL-3.0) wraps WinFsp; winfsp-sys gives
+# the raw FFI types (FILE_ACCESS_RIGHTS etc.) the FileSystemContext trait uses.
+# NOTE: enabling `winfsp` makes that build GPL-3.0; the default build is MIT/Apache.
+# Build requirement: WinFsp 2.x installed; build.rs calls winfsp_link_delayload().
+[target.'cfg(windows)'.dependencies]
+winfsp     = { version = "0.13", optional = true }
+winfsp-sys = { version = "0.12", optional = true }
+
+# Delay-load linking for WinFsp (see build.rs).
+[target.'cfg(windows)'.build-dependencies]
+winfsp = { version = "0.13", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lib]
+name = "sfs_mount"

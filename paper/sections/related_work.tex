@@ -1,0 +1,208 @@
+\section{Related Work}
+\label{sec:related}
+
+% The subsections position the shared fragment representation against its
+% neighboring research lines; they are not a capability-scorecard.
+
+% ── Versioning filesystems ─────────────────────────────────────────────────
+\subsection{Versioning Filesystems}
+\label{subsec:rw-versioning}
+
+Prior versioning filesystems fall into three broad families. \emph{Per-write /
+comprehensive} systems
+keep a version on every write: Elephant retains all versions and lets
+user policy decide what to forget~\citep{Santry1999Elephant}; CVFS versions at
+write granularity with space-efficient multiversion metadata for a fixed
+security window~\citep{Soules2003CVFS}; Wayback and VersionFS realize the same
+idea as a user-level undo log and a stackable
+layer~\citep{Cornell2004Wayback, MuniswamyReddy2004VersionFS}. \emph{Snapshot /
+copy-on-write} systems version at point-in-time, filesystem-wide granularity:
+WAFL duplicates the root inode~\citep{Hitz1994WAFL}, ZFS and Btrfs snapshot
+whole datasets/subvolumes over CoW trees~\citep{Rodeh2013Btrfs}, and ext3cow
+adds epoch snapshots to ext3~\citep{Peterson2005Ext3cow}. \emph{Content-addressed
+/ git-like} systems version through immutable objects and discrete commits: Ori
+gives a filesystem a git-style replicated, integrity-checked
+history~\citep{Mashtizadeh2013Ori}, and ForkBase pulls git-conformant branching
+into a storage substrate~\citep{Lin2020ForkBase}.
+
+\sfs{} differs from all three, but does not claim to be the first filesystem
+with native multiversion structures. In particular, CVFS uses journal-based
+multiversion B-trees for filesystem metadata~\citep{Soules2003CVFS}. In \sfs{},
+versioning is neither an overlay
+(Wayback/VersionFS), a filesystem-wide snapshot (WAFL/ZFS/Btrfs/ext3cow), nor a
+separate object store (Ori/ForkBase/git): each unit carries its own
+continuously advanced fragment lineage as the \emph{native} on-disk model, with
+named commits as retention-protected fixpoints layered over the running history
+(\cref{subsec:mvcc}). Multiversion concurrency control is well established in
+databases --- recent work extends it to disaggregated
+memory~\citep{Zhang2024Motor}. The narrower gap \sfs{} targets is a per-file
+fragment version map that is simultaneously the unit of history,
+synchronization, and sub-file conflict handling, combined with the encrypted
+multi-writer and cross-surface container design.
+
+% ── CoW, crash consistency, allocator ──────────────────────────────────────
+\subsection{Copy-on-Write, Crash Consistency, and Allocation}
+\label{subsec:rw-cow}
+
+Crash-consistency mechanisms split into journaling, explicit dependency
+ordering, and atomic root publication.  Journaling ranges from
+ext3/4 to optimizations that decouple ordering from durability
+(OptFS~\citep{Chidambaram2013OptFS}); ordering approaches --- soft
+updates~\citep{Ganger2000SoftUpdates}, Featherstitch's generalized
+dependencies~\citep{Frost2007Featherstitch}, and, recently, SquirrelFS, which
+encodes update ordering in Rust's typestate and checks it at compile
+time~\citep{LeBlanc2024SquirrelFS} --- avoid a journal but have no single atomic
+point. \sfs{} uses the third mechanism for publication: the committed root is a
+sequence-wins choice between two alternating header slots. This is not a
+journal-free-system claim: an optional WAL serves asynchronous writes, and
+in-place overwrite recovery uses undo records in the eviction tail. WAFL's two
+alternating \texttt{fsinfo} blocks~\citep{Hitz1994WAFL} are the closest
+precursor to the root publication; ZFS's uberblock ring uses the same principle.
+Our novelty is not that commit pattern but its combination with
+\emph{fragment-granular} CoW over a flat three-region allocator: WAFL, ZFS, and
+Btrfs shadow tree paths recursively up to the root,
+which measurably amplifies writes~\citep{Rodeh2013Btrfs}. \sfs{} does not place
+file content in such a filesystem-wide CoW tree, although its key and identity
+catalog tries still incur their own CoW update cost
+(\cref{subsec:commit,subsec:alloc}). On space management, LFS and
+its flash/NVM successors (F2FS~\citep{Lee2015F2FS}, NOVA~\citep{Xu2016NOVA}) are
+log-structured with a cleaner/GC.  \sfs{} has no background wandering cleaner:
+fixed regions (catalog head, live units, eviction tail) replace the wandering
+log, while retention expiry, reclamation, defragmentation, and trim are explicit
+operations.  The eviction-tail region has no direct analogue in that
+literature. WineFS's finding that alignment and aging affect fragmentation
+substantially~\citep{Kadekodi2021WineFS} reinforces the need to evaluate the
+long-term behavior of this simpler allocator separately.
+
+% ── Chunking ────────────────────────────────────────────────────────────────
+\subsection{Chunking: Content-Defined versus Fixed-Size}
+\label{subsec:rw-chunking}
+
+Content-defined chunking (CDC), introduced by LBFS~\citep{Muthitacharoen2001LBFS}
+and since accelerated by Data Domain~\citep{Zhu2008DataDomain} and the FastCDC
+line~\citep{Xia2016FastCDC}, sets chunk boundaries by a rolling hash so that an
+inserted byte does not shift all following boundaries --- at the cost of
+content-dependent boundaries and a rolling-hash scan. CDC is deterministic for
+a fixed input and algorithm; its boundaries are content-dependent, not random.
+\sfs{} deliberately rejects CDC in favor of fixed-size fragments with a
+$\sqrt{\cdot}$-shaped schedule: within a size band, fixed boundaries give a
+constant-time position$\rightarrow$fragment mapping (fragment $n$ of a version
+maps to fragment $n$ of the next), with no rolling-hash scan. A sync round still
+scans the unit manifests and fragment-version vectors, so its metadata work is
+linear in the number of units and fragments; normal steady-state sync transfers
+changed or missing fragments. At a fragment-size band transition, \sfs{}
+re-chunks the unit.
+Advances in CDC \emph{throughput} do not change this content-dependence trade-off.
+The Merkle-/content-addressed tradition (Venti~\citep{Quinlan2002Venti},
+git, IPFS~\citep{Benet2014IPFS}, Tahoe-LAFS~\citep{WilcoxOHearn2008Tahoe}) informs
+\sfs{}'s Merkle-like catalog trie, but \sfs{} keeps identity+version addressing
+for data blocks rather than pure content addressing, precisely because it
+synchronizes mutable versions rather than stacking immutable snapshots.
+
+% ── Replication and conflict resolution ────────────────────────────────────
+\subsection{Optimistic Replication and Conflict Resolution}
+\label{subsec:rw-replication}
+
+\sfs{}'s synchronization descends from version vectors~\citep{Parker1983VersionVectors}
+and the optimistic-replication filesystems built on them: Coda's disconnected
+operation~\citep{Kistler1992Coda}, Ficus's peer replication with VV conflict
+detection~\citep{Reiher1994Ficus}, Bayou's application-defined merge
+procedures~\citep{Terry1995Bayou}, and Ivy's per-participant logs in a
+DHT~\citep{Muthitacharoen2002Ivy}. Across this family, \emph{content} conflicts
+within a file are left whole-file and usually manual (Ficus auto-merges only
+directory structure; Ivy needs a conflict tool). At the other pole, CRDTs
+eliminate conflicts algebraically~\citep{Shapiro2011CRDT}: JSON-CRDT/Automerge
+converge nested documents~\citep{Kleppmann2017JSONCRDT}, ElmerFS models
+filesystem structures as CRDTs over a CRDT
+store~\citep{Elmerfs2021}, at the price of per-element metadata,
+tombstones, and sometimes counter-intuitive auto-resolutions. \sfs{} sits
+between the two: version-vector sync with \emph{block-granular} auto-merge
+(strain splits) --- concurrent edits to different fragments of the same file
+merge automatically, while concurrent updates to the same fragment remain a
+conflict even when the changed byte ranges inside it do not overlap.  The
+conflict is surfaced as a \texttt{user.sfs.conflict} xattr. This fills the gap
+the VV filesystems leave (sub-file content merge) without adopting CRDT
+machinery.
+
+% ── Portable encrypted VFS and cloud substrates ────────────────────────────
+\subsection{Portable Encrypted VFS and Cloud Substrates}
+\label{subsec:rw-vfs}
+
+WNFS is the closest architectural neighbor on the web-facing side: it is a
+versioned, content-addressed, encrypted filesystem designed for offline
+collaboration, untrusted storage, and WebAssembly, and models the tree as a
+state-based CRDT~\citep{WNFSspec}.  Peergos likewise combines client-side
+encryption, protected metadata, capability sharing, cloud or peer storage, and
+web and desktop clients~\citep{Peergos}.  These systems demonstrate that an
+encrypted application-owned filesystem is a useful web abstraction; \sfs{}
+does not claim that category.  Its narrower distinction is to carry one
+position-addressed fragment/version representation through ordinary file APIs,
+a raw-device kernel implementation, FUSE, an application VFS, and an
+experimental wasm binding.  It preserves concurrent same-fragment branches
+rather than making the entire tree a CRDT.
+
+At the infrastructure scale, OceanStore treats persistent encrypted objects as
+the basis for global storage~\citep{Kubiatowicz2000OceanStore}, while Ceph
+builds file, block, and object services above a distributed object
+store~\citep{Weil2006Ceph}.  \sfs{} borrows the unifying-substrate ambition but
+not their scale claim: its hosted service is an untrusted relay for the same
+client-owned records used locally, and the present evaluation contains neither
+a storage cluster nor a multi-client scalability experiment.  The result is a
+backend-neutral VFS boundary, not a replacement for a distributed object-store
+control plane.
+
+% ── Cryptographic / untrusted storage ──────────────────────────────────────
+\subsection{Cryptographic and Untrusted Storage}
+\label{subsec:rw-crypto}
+
+Cryptographic filesystems progress by threat model. Farsite is an important
+early combination: it encrypts file data placed on incompletely trusted desktop
+machines and uses Byzantine fault tolerance for distributed filesystem
+metadata~\citep{Adya2002Farsite}. Local, honest-but-curious
+(HbC) systems --- CFS~\citep{Blaze1993CFS}, \texttt{gocryptfs}/eCryptfs,
+dm-crypt/LUKS --- give at-rest confidentiality for one user, without multi-writer
+or sync. Secure-sharing-on-untrusted-storage systems add key management and
+revocation: Plutus with lazy revocation via key
+rotation~\citep{Kallahalla2003Plutus}, SiRiUS with signed per-file metadata over
+an untrusted underlay~\citep{Goh2003SiRiUS}, Cryptree with hierarchical key
+derivation~\citep{Grolimund2006Cryptree}, and Key Regression formalizing the
+rotation~\citep{Fu2006KeyRegression}. A stronger model assumes an actively
+byzantine server and provides \emph{fork consistency}: SUNDR~\citep{Li2004SUNDR}
+makes any server equivocation detectable, and SPORC extends this to collaborative
+multi-writer apps~\citep{Feldman2010SPORC}; Depot tolerates faulty nodes and
+heals forks~\citep{Mahajan2011Depot}. Recent metadata-hiding systems push
+further with ORAM (Metal~\citep{Chen2020Metal}, Titanium~\citep{Chen2022Titanium})
+or anonymity (Ghostor~\citep{Hu2020Ghostor}), and KBFS signs a recursive root
+block for integrity under total server compromise. Cryptanalysis of deployed
+end-to-end-encrypted storage~\citep{Backendal2023MEGA, Backendal2024BrokenEcosystem}
+motivates the whole line: real providers turn malicious, and the server must
+never see keys or paths.
+
+\sfs{} takes the \emph{honest-but-curious} position deliberately, not the
+fork-consistency one.  In its secure hosted profile, metadata and content are
+client-side AES-GCM encrypted and accepted record frontiers are authorized by
+Ed25519 signatures under an owner-signed, epoch-versioned writer set.  The
+server receives neither keys, paths, metadata plaintext, nor content plaintext.
+This statement does not extend to the selectable XTS or plaintext content
+modes: XTS provides confidentiality without authentication, and \textsc{none}
+provides neither.  We use \emph{client-side-encrypted storage} rather than the
+cryptographic term zero knowledge because the service still observes accounts,
+object identifiers, version vectors, counts and sizes, timing, and access
+patterns.  The signatures cover logical record frontiers, not a complete
+per-fragment provenance proof.
+
+Multi-writer authorization comes from the signed writer set (tombstone
+revocation and root-key rotation) rather than from a
+fork-consistency protocol or CRDT/OT. Relative to Plutus, revocation is bound to
+epochs and the writer set rather than to per-file-group key chains; relative to
+SUNDR/SPORC, \sfs{} does not guarantee detection of a server that withholds or
+forks versions --- an explicit model weakening we defend in \cref{sec:discussion}.
+KBFS is a close deployed neighbor~\citep{KeybaseKBFS}; \sfs{} differs in
+binding identity to SRP-6a password authentication and a self-contained
+container rather than to social sigchains, and in targeting one self-contained
+format across kernel, FUSE, and experimental wasm bindings.
+
+Finally, the earlier Self-Certifying File System also used the acronym
+SFS~\citep{Fu2000SFS}.  It secured remote access through self-certifying
+pathnames and is otherwise unrelated to the artifact described here; this
+paper consistently typesets the present system as \sfs{}.

@@ -1,0 +1,90 @@
+[package]
+name = "zero-sfs-saas"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Client-side-encrypted sfs SaaS blob-store service (server-side; transport-agnostic)"
+
+[dependencies]
+sfs-sync   = { path = "../sfs-sync", package = "zero-sfs-sync" }
+sfs-core   = { path = "../sfs-core", package = "zero-sfs-core" }
+tempfile   = { workspace = true }
+sha2       = { workspace = true }
+getrandom  = { workspace = true }
+thiserror  = { workspace = true }
+num-bigint = { version = "0.4", features = ["rand"] }
+num-traits = "0.2"
+# Constant-time modular exponentiation for SRP (DH-1). num-bigint's modpow is
+# variable-time; crypto-bigint provides Montgomery-form CT modpow. subtle gives
+# constant-time proof comparison. num-bigint stays for the (public) Thinbus
+# hex/wire arithmetic.
+crypto-bigint = "0.5"
+subtle     = "2"
+hex        = "0.4"
+rand       = "0.8"
+argon2     = "0.5"
+aes-gcm    = { workspace = true }
+crc32fast  = { workspace = true }
+
+# ── Client network transport (always present — used by both CLI and server) ──
+reqwest        = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls-manual-roots", "http2"] }
+bytes          = "1"
+
+# ── Service layer (T7a/T7b): TLS-mandatory HTTPS service — server feature only ──
+tokio          = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "signal"], optional = true }
+tracing            = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+axum           = { version = "0.7", default-features = false, features = ["http1", "http2", "tokio"], optional = true }
+axum-server    = { version = "0.7", default-features = false, features = ["tls-rustls-no-provider"], optional = true }
+rustls         = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+rustls-pemfile = { version = "2", optional = true }
+
+# ── T7b: HTTP/3 (QUIC) support — server feature only ────────────────────
+# quinn 0.11 + h3 0.0.8 + h3-quinn 0.0.10 are mutually compatible.
+quinn    = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls", "ring"], optional = true }
+h3       = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
+# sfs-peer binary: self-signed pairing certs at runtime (same crate the tests use).
+rcgen    = { version = "0.13", optional = true }
+
+[features]
+# Server stack: axum + tokio + quinn/h3 (TLS service + HTTP/3).
+# Keep in `default` so `cargo test --workspace` and clippy are unchanged.
+# The CLI depends on sfs-saas with `default-features = false` (client-only).
+server = ["dep:tokio", "dep:axum", "dep:axum-server", "dep:rustls", "dep:rustls-pemfile", "dep:quinn", "dep:h3", "dep:h3-quinn", "dep:tracing", "dep:tracing-subscriber"]
+
+# TEST-ONLY: exposes ServerStore::contains_bytes / AppState::contains_marker for
+# the over-the-wire plaintext-absence e2e assertion. NEVER enable in production.
+test-hooks = []
+
+# P2P peer daemon binary (sfs-peer): server stack + runtime cert generation.
+p2p-bin = ["server", "dep:rcgen"]
+
+default = ["server"]
+
+[dev-dependencies]
+serde_json = "1"
+rcgen      = "0.13"
+sfs-core   = { path = "../sfs-core", package = "zero-sfs-core" }
+# Self dev-dependency to turn on `test-hooks` when building the test/bench
+# targets, so `cargo test` exposes the plaintext-absence inspection hook without it being a
+# default (production) feature.
+sfs-saas   = { path = ".", package = "zero-sfs-saas", features = ["test-hooks"] }
+futures    = "0.3"
+http       = "1"
+
+[[bin]]
+name = "sfs-saas"
+path = "src/bin/sfs-saas.rs"
+required-features = ["server"]
+
+[[bin]]
+name = "sfs-peer"
+path = "src/bin/sfs-peer.rs"
+required-features = ["p2p-bin"]
+
+[lib]
+name = "sfs_saas"

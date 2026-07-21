@@ -1,0 +1,38 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+\sfs{} began with an agentic-time problem: one evolving project should be
+available to many autonomous writers across machines without reducing live work
+to manual clones, explicit commits, or last-writer-wins synchronization.  Its
+answer is to make a position-addressed fragment map causal.  The same map
+materializes current bytes, identifies retained history, names synchronization
+payloads, and separates disjoint concurrent changes from same-fragment strains.
+
+The result is more than a format sketch.  RC1 carries the v12 logical model
+through an independent raw-device Linux driver, a Rust engine, FUSE, a C ABI,
+hosted and peer transports, and an experimental in-memory wasm boundary.  In
+the GCM-plus-WriterSet profile, an application can own the encrypted VFS and
+use a service for availability while withholding content plaintext,
+VFS-metadata plaintext, and client keys.  The observed synchronization metadata
+and honest-but-curious threat model remain explicit.  The NoSQL experiment in
+\cref{sec:annex-nosql} is a secondary projection of this substrate rather than
+its rationale.
+
+Controlled two- and three-replica scenarios establish the intended disjoint
+merge, retained-conflict, resolution, hosted-service, and live-peer mechanics.
+On the measured single-device sequential workload, the kernel implementation
+is at parity with or ahead of its ext4 and LUKS baselines in geometric mean.
+The portable path outperforms fuse2fs for plaintext I/O but retains a
+substantial encrypted-read gap against gocryptfs.  The scenarios and throughput
+data validate implemented mechanisms and show that the native fragment-causal
+path need not trade away local throughput; they do not yet validate multi-agent
+or non-loopback network scale.
+
+The contribution is therefore the substrate and common boundary: one
+fragment-causal state model spanning ordinary files, application VFS use,
+machine boundaries, and an untrusted storage service.  It makes the original
+``Dropbox for devs'' prompt a
+filesystem property while retaining Git-like evidence of how concurrent work
+arrived there.  The next research question is no longer whether that
+combination can be built, but how it behaves under real agent fleets, long-lived
+history, and adversarial service behavior.

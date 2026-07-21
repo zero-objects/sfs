@@ -1,0 +1,19 @@
+[package]
+name        = "zero-sfs-ffi"
+description = "C-ABI surface over sfs-core (cdylib + staticlib + rlib)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace   = true
+license.workspace   = true
+repository.workspace = true
+
+[lib]
+name = "sfs_ffi"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+sfs-core = { path = "../sfs-core", package = "zero-sfs-core" }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -1,0 +1,30 @@
+# Build output
+/target/
+**/target/
+
+# Kernel build artifacts
+*.o
+*.ko
+*.mod
+*.mod.c
+*.cmd
+*.symvers
+*.order
+*.dSYM/
+
+# LaTeX build artifacts
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/*.toc
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.synctex.gz
+paper/sections/*.aux
+paper/paper.pdf
+paper/sfs_Paper_Preprint.pdf
+
+# OS / editor cruft
+.DS_Store

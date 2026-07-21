@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# sfs-maintain — run online maintenance (evict / trim / defrag) on a mounted
+# sfs container via the WS11 sfsctl ioctls (WS12 12.7).
+#
+# Usage: sfs-maintain <mountpoint>
+#
+# Driven by /etc/sfs/maintain.conf (sourced if present):
+#   SFS_MAINTAIN_OPS="evict trim"     # which ops to run, in order
+#   SFS_MAINTAIN_EVICT_NOW=""         # optional --now SECS for evict (retention horizon)
+#   SFS_MAINTAIN_TARGET="."           # path inside the mount to act on (default: root)
+#   SFSCTL=/usr/local/sbin/sfsctl     # sfsctl binary
+#
+# Retention itself is governed by the container's eviction_code (0=TimeMachine /
+# 1=KeepAll / 2=Horizon); sfsctl/evict honours it, so this wrapper just triggers
+# the passes on a cadence.
+set -euo pipefail
+
+MNT="${1:?usage: sfs-maintain <mountpoint>}"
+
+# Defaults (overridable via the config file).
+SFS_MAINTAIN_OPS="evict trim"
+SFS_MAINTAIN_EVICT_NOW=""
+SFS_MAINTAIN_TARGET="."
+SFSCTL="${SFSCTL:-/usr/local/sbin/sfsctl}"
+[ -r /etc/sfs/maintain.conf ] && . /etc/sfs/maintain.conf
+
+if ! mountpoint -q "$MNT"; then
+    echo "sfs-maintain: $MNT is not a mount point — skipping" >&2
+    exit 0
+fi
+
+TARGET="$MNT/${SFS_MAINTAIN_TARGET#./}"
+rc=0
+for op in $SFS_MAINTAIN_OPS; do
+    case "$op" in
+        evict)
+            if [ -n "$SFS_MAINTAIN_EVICT_NOW" ]; then
+                echo "sfs-maintain: evict --now $SFS_MAINTAIN_EVICT_NOW $TARGET"
+                "$SFSCTL" evict --now "$SFS_MAINTAIN_EVICT_NOW" "$TARGET" || rc=$?
+            else
+                echo "sfs-maintain: evict $TARGET"
+                "$SFSCTL" evict "$TARGET" || rc=$?
+            fi
+            ;;
+        trim)
+            echo "sfs-maintain: trim $TARGET"
+            "$SFSCTL" trim "$TARGET" || rc=$?
+            ;;
+        defrag)
+            echo "sfs-maintain: defrag $TARGET"
+            "$SFSCTL" defrag "$TARGET" || rc=$?
+            ;;
+        *)
+            echo "sfs-maintain: unknown op '$op' (want evict|trim|defrag)" >&2
+            rc=1
+            ;;
+    esac
+done
+echo "sfs-maintain: done ($MNT) rc=$rc"
+exit "$rc"

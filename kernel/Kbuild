@@ -1,0 +1,33 @@
+obj-m += sfs.o
+
+sfs-y := sfs_util.o \
+	sfs_crypto.o \
+	sfs_header.o \
+	sfs_trie.o \
+	sfs_record.o \
+	sfs_attr.o \
+	sfs_xattr.o \
+	sfs_meta.o \
+	sfs_ns.o \
+	sfs_tail.o \
+	sfs_encode.o \
+	sfs_ed25519.o \
+	sfs_sign.o \
+	sfs_cow.o \
+	sfs_catcow.o \
+	sfs_falloc.o \
+	sfs_wal.o \
+	sfs_evict.o \
+	sfs_defrag.o \
+	sfs_ioctl.o \
+	sfs_export.o \
+	sfs_kcrypto.o \
+	sfs_super.o \
+	sfs_inode.o \
+	sfs_data.o \
+	sfs_dir.o \
+	sfs_write.o
+
+sfs-$(CONFIG_FS_POSIX_ACL) += sfs_acl.o
+
+ccflags-y := -I$(src)

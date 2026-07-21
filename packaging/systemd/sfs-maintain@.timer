@@ -1,0 +1,16 @@
+# sfs online maintenance timer (WS12 12.7).
+#
+# Enable per mounted container, e.g.:
+#   systemctl enable --now 'sfs-maintain@mnt-vault.timer'
+# Cadence is overridable in /etc/sfs/maintain.conf via a drop-in; the default
+# is daily with a randomized delay to avoid a thundering herd.
+[Unit]
+Description=Daily sfs online maintenance on %f
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

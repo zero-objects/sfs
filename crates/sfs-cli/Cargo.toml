@@ -1,0 +1,54 @@
+[package]
+name = "zero-sfs-cli"
+version.workspace = true
+edition = "2021"
+rust-version.workspace = true
+license = "MIT OR Apache-2.0"
+repository.workspace = true
+description = "OS-integration binaries for sfs: mkfs.sfs / fsck.sfs / mount.sfs / blkid probe / sfsd"
+
+[dependencies]
+sfs-core   = { path = "../sfs-core", package = "zero-sfs-core" }
+sfs-sync   = { path = "../sfs-sync", package = "zero-sfs-sync" }
+getrandom  = { workspace = true }
+crc32fast  = { workspace = true }
+hex        = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+libc       = "0.2"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+# mkfs.<fstype> — create an sfs container on a device or file.
+[[bin]]
+name = "mkfs-sfs"
+path = "src/bin/mkfs-sfs.rs"
+
+# sfs-pack — build a minimally-sized sfs image from a file or directory tree.
+[[bin]]
+name = "sfs-pack"
+path = "src/bin/sfs-pack.rs"
+
+# fsck.<fstype> — check/repair with standard fsck exit codes.
+[[bin]]
+name = "fsck-sfs"
+path = "src/bin/fsck-sfs.rs"
+
+# mount.<fstype> — util-linux mount helper (`mount -t sfs`).
+[[bin]]
+name = "mount-sfs"
+path = "src/bin/mount-sfs.rs"
+
+# udev/blkid superblock prober — reads only the header + identity block.
+[[bin]]
+name = "sfs-blkid-probe"
+path = "src/bin/sfs-blkid-probe.rs"
+
+# Local multi-client daemon (D-8).
+[[bin]]
+name = "sfsd"
+path = "src/bin/sfsd.rs"
+
+[lib]
+name = "sfs_cli"

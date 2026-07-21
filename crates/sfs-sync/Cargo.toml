@@ -1,0 +1,17 @@
+[package]
+name = "zero-sfs-sync"
+description = "Version-vector synchronization model for the sfs filesystem: diff, strains, and a transport trait."
+version.workspace = true
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository.workspace = true
+
+[dependencies]
+sfs-core = { path = "../sfs-core", package = "zero-sfs-core" }
+
+[dev-dependencies]
+sfs-core = { path = "../sfs-core", package = "zero-sfs-core" }
+tempfile = { workspace = true }
+
+[lib]
+name = "sfs_sync"

@@ -1,0 +1,23 @@
+# sfs online maintenance (WS12 12.7) — Time-Machine retention + trim/defrag.
+#
+# Instance = the mount point, systemd-escaped.  Example (mount at /mnt/vault):
+#   systemctl enable --now 'sfs-maintain@mnt-vault.timer'
+# %f expands to the unescaped instance as an absolute path (/mnt/vault).
+#
+# Runs the WS11 online-maintenance ioctls (evict/trim, optionally defrag) via
+# sfsctl on the mounted container.  Retention follows the container's
+# eviction_code (0=TimeMachine / 1=KeepAll / 2=Horizon), which sfsctl/evict
+# already honours — so nobody has to remember to run it.
+[Unit]
+Description=sfs online maintenance on %f
+# %f is the unescaped instance path (the mount point).  ConditionPathIsMountPoint
+# skips the run if it is not currently mounted (a mount-unit ordering dependency
+# cannot be expressed with %f here, so we simply no-op when unmounted).
+ConditionPathIsMountPoint=%f
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/sfs/maintain.conf
+ExecStart=/usr/local/sbin/sfs-maintain %f
+Nice=10
+IOSchedulingClass=idle

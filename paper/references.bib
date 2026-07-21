@@ -1,0 +1,475 @@
+% ============================================================================
+% References for the sfs paper.
+% Venue+year verified via primary sources (USENIX / ACM DL / NDSS / IACR / dblp)
+% during the literature sweep.
+% ============================================================================
+
+% ── Design prompt and cross-surface systems ────────────────────────────────
+
+@misc{Browne2026Ideas,
+  author       = {Browne, Theo},
+  title        = {I Don't Have Time to Build These Things, Will You?},
+  howpublished = {Video, Theo -- t3.gg},
+  year         = {2026},
+  month        = jun,
+  url          = {https://www.youtube.com/watch?v=wEAb0x3wTRc},
+  note         = {Source-control and ``Dropbox for devs'' discussion at
+                  19:14--26:03; published 22 June 2026},
+}
+
+@misc{SfsArtifact2026,
+  author       = {Ke{\ss}ler, Sandra Theresa},
+  title        = {{sfs}: Fragment-Causal Filesystem Substrate},
+  howpublished = {Source code and release artifacts},
+  year         = {2026},
+  url          = {https://github.com/zero-objects/sfs},
+  note         = {Release candidate 1.0.0-rc.1; Rust packages are published
+                  under the zero-sfs-* prefix},
+}
+
+@misc{WNFSspec,
+  author       = {{WNFS Working Group}},
+  title        = {WebNative File System ({WNFS}) Specification},
+  howpublished = {Version 0.2.0-alpha working specification},
+  year         = {2026},
+  url          = {https://github.com/wnfs-wg/spec},
+  note         = {Living working draft, accessed 21 July 2026},
+}
+
+@misc{Peergos,
+  author       = {{Peergos}},
+  title        = {Peergos: End-to-End Encrypted Storage, Sharing, and Sync},
+  year         = {2026},
+  url          = {https://peergos.org/features},
+  note         = {Product and architecture documentation, accessed 21 July
+                  2026},
+}
+
+@inproceedings{Weil2006Ceph,
+  author    = {Weil, Sage A. and Brandt, Scott A. and Miller, Ethan L. and Long, Darrell D. E. and Maltzahn, Carlos},
+  title     = {{Ceph}: A Scalable, High-Performance Distributed File System},
+  booktitle = {Proc. 7th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2006},
+  url       = {https://www.usenix.org/conference/osdi-06/ceph-scalable-high-performance-distributed-file-system},
+}
+
+@inproceedings{Kubiatowicz2000OceanStore,
+  author    = {Kubiatowicz, John and Bindel, David and Chen, Yan and Czerwinski, Steven and Eaton, Patrick and Geels, Dennis and Gummadi, Ramakrishna and Rhea, Sean and Weatherspoon, Hakim and Weimer, Westley and Wells, Chris and Zhao, Ben},
+  title     = {{OceanStore}: An Architecture for Global-Scale Persistent Storage},
+  booktitle = {Proc. 9th International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS)},
+  year      = {2000},
+  pages     = {190--201},
+  doi       = {10.1145/356989.357007},
+}
+
+@conference{Fu2000SFS,
+  author    = {Fu, Kevin},
+  title     = {The Self-Certifying File System},
+  booktitle = {Proc. USENIX Annual Technical Conference},
+  year      = {2000},
+  url       = {https://www.usenix.org/conference/2000-usenix-annual-technical-conference/self-certifying-file-system},
+}
+
+% ── Versioning filesystems ─────────────────────────────────────────────────
+
+@inproceedings{Santry1999Elephant,
+  author    = {Santry, Douglas S. and Feeley, Michael J. and Hutchinson, Norman C. and Veitch, Alistair C. and Carton, Ross W. and Ofir, Jacob},
+  title     = {Deciding When to Forget in the {Elephant} File System},
+  booktitle = {Proc. 17th ACM Symposium on Operating Systems Principles (SOSP)},
+  year      = {1999},
+  pages     = {110--123},
+  doi       = {10.1145/319151.319159},
+}
+
+@article{Peterson2005Ext3cow,
+  author  = {Peterson, Zachary N. J. and Burns, Randal},
+  title   = {Ext3cow: A Time-Shifting File System for Regulatory Compliance},
+  journal = {ACM Transactions on Storage},
+  volume  = {1},
+  number  = {2},
+  pages   = {190--212},
+  year    = {2005},
+  doi     = {10.1145/1063786.1063789},
+}
+
+@inproceedings{Soules2003CVFS,
+  author    = {Soules, Craig A. N. and Goodson, Garth R. and Strunk, John D. and Ganger, Gregory R.},
+  title     = {Metadata Efficiency in Versioning File Systems},
+  booktitle = {Proc. 2nd USENIX Conference on File and Storage Technologies (FAST)},
+  year      = {2003},
+}
+
+@inproceedings{Cornell2004Wayback,
+  author    = {Cornell, Brian and Dinda, Peter A. and Bustamante, Fabi{\'a}n E.},
+  title     = {Wayback: A User-level Versioning File System for {Linux}},
+  booktitle = {Proc. USENIX Annual Technical Conference, FREENIX Track},
+  year      = {2004},
+}
+
+@inproceedings{MuniswamyReddy2004VersionFS,
+  author    = {Muniswamy-Reddy, Kiran-Kumar and Wright, Charles P. and Himmer, Andrew and Zadok, Erez},
+  title     = {A Versatile and User-Oriented Versioning File System},
+  booktitle = {Proc. 3rd USENIX Conference on File and Storage Technologies (FAST)},
+  year      = {2004},
+}
+
+@inproceedings{Hitz1994WAFL,
+  author    = {Hitz, Dave and Lau, James and Malcolm, Michael},
+  title     = {File System Design for an {NFS} File Server Appliance},
+  booktitle = {Proc. USENIX Winter Technical Conference},
+  year      = {1994},
+  note      = {NetApp Technical Report TR3002},
+}
+
+@article{Rodeh2013Btrfs,
+  author  = {Rodeh, Ohad and Bacik, Josef and Mason, Chris},
+  title   = {{BTRFS}: The {Linux} B-Tree Filesystem},
+  journal = {ACM Transactions on Storage},
+  volume  = {9},
+  number  = {3},
+  year    = {2013},
+  doi     = {10.1145/2501620.2501623},
+}
+
+@inproceedings{Mashtizadeh2013Ori,
+  author    = {Mashtizadeh, Ali Jos{\'e} and Bittau, Andrea and Huang, Yifeng Frank and Mazi{\`e}res, David},
+  title     = {Replication, History, and Grafting in the {Ori} File System},
+  booktitle = {Proc. 24th ACM Symposium on Operating Systems Principles (SOSP)},
+  year      = {2013},
+  doi       = {10.1145/2517349.2522721},
+}
+
+@inproceedings{Lin2020ForkBase,
+  author    = {Lin, Qian and Yang, Kaiyuan and Dinh, Tien Tuan Anh and Cai, Qingchao and Chen, Gang and Ooi, Beng Chin and Ruan, Pingcheng and Wang, Sheng and Xie, Zhongle and Zhang, Meihui and Vandans, Olaf},
+  title     = {{ForkBase}: Immutable, Tamper-evident Storage Substrate for Branchable Applications},
+  booktitle = {Proc. 36th IEEE International Conference on Data Engineering (ICDE)},
+  year      = {2020},
+  note      = {Also PVLDB 11(10), 2018 (unverified in this sweep)},
+}
+
+@inproceedings{Zhang2024Motor,
+  author    = {Zhang, Ming and Hua, Yu and Yang, Zhijun},
+  title     = {{Motor}: Enabling Multi-Versioning for Distributed Transactions on Disaggregated Memory},
+  booktitle = {Proc. 18th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2024},
+}
+
+@misc{Benet2014IPFS,
+  author = {Benet, Juan},
+  title  = {{IPFS} --- Content Addressed, Versioned, {P2P} File System},
+  year   = {2014},
+  note   = {arXiv:1407.3561 (preprint, not peer-reviewed)},
+}
+
+% ── CoW, crash consistency, allocator ──────────────────────────────────────
+
+@article{Rosenblum1992LFS,
+  author  = {Rosenblum, Mendel and Ousterhout, John K.},
+  title   = {The Design and Implementation of a Log-Structured File System},
+  journal = {ACM Transactions on Computer Systems},
+  volume  = {10},
+  number  = {1},
+  pages   = {26--52},
+  year    = {1992},
+  note    = {Earlier version SOSP 1991},
+}
+
+@article{Ganger2000SoftUpdates,
+  author  = {Ganger, Gregory R. and McKusick, Marshall Kirk and Soules, Craig A. N. and Patt, Yale N.},
+  title   = {Soft Updates: A Solution to the Metadata Update Problem in File Systems},
+  journal = {ACM Transactions on Computer Systems},
+  volume  = {18},
+  number  = {2},
+  pages   = {127--153},
+  year    = {2000},
+  doi     = {10.1145/350853.350863},
+}
+
+@inproceedings{Frost2007Featherstitch,
+  author    = {Frost, Christopher and Mammarella, Mike and Kohler, Eddie and de los Reyes, Andrew and Hovsepian, Shant and Matsuoka, Andrew and Zhang, Lei},
+  title     = {Generalized File System Dependencies},
+  booktitle = {Proc. 21st ACM Symposium on Operating Systems Principles (SOSP)},
+  year      = {2007},
+}
+
+@inproceedings{Chidambaram2013OptFS,
+  author    = {Chidambaram, Vijay and Pillai, Thanumalayan Sankaranarayana and Arpaci-Dusseau, Andrea C. and Arpaci-Dusseau, Remzi H.},
+  title     = {Optimistic Crash Consistency},
+  booktitle = {Proc. 24th ACM Symposium on Operating Systems Principles (SOSP)},
+  year      = {2013},
+}
+
+@inproceedings{Lee2015F2FS,
+  author    = {Lee, Changman and Sim, Dongho and Hwang, Jooyoung and Cho, Sangyeun},
+  title     = {{F2FS}: A New File System for Flash Storage},
+  booktitle = {Proc. 13th USENIX Conference on File and Storage Technologies (FAST)},
+  year      = {2015},
+}
+
+@inproceedings{Xu2016NOVA,
+  author    = {Xu, Jian and Swanson, Steven},
+  title     = {{NOVA}: A Log-structured File System for Hybrid Volatile/Non-volatile Main Memories},
+  booktitle = {Proc. 14th USENIX Conference on File and Storage Technologies (FAST)},
+  year      = {2016},
+}
+
+@inproceedings{Kadekodi2021WineFS,
+  author    = {Kadekodi, Rohan and Kadekodi, Saurabh and Ponnapalli, Soujanya and Shirwadkar, Harshad and Ganger, Gregory R. and Kolli, Aasheesh and Chidambaram, Vijay},
+  title     = {{WineFS}: A Hugepage-Aware File System for Persistent Memory that Ages Gracefully},
+  booktitle = {Proc. 28th ACM Symposium on Operating Systems Principles (SOSP)},
+  year      = {2021},
+}
+
+@inproceedings{LeBlanc2024SquirrelFS,
+  author    = {LeBlanc, Hayley and Taylor, Nathan and Bornholt, James and Chidambaram, Vijay},
+  title     = {{SquirrelFS}: Using the {Rust} Compiler to Check File-System Crash Consistency},
+  booktitle = {Proc. 18th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2024},
+}
+
+@inproceedings{Mohan2018CrashMonkey,
+  author    = {Mohan, Jayashree and Martinez, Ashlie and Ponnapalli, Soujanya and Raju, Pandian and Chidambaram, Vijay},
+  title     = {Finding Crash-Consistency Bugs with Bounded Black-Box Crash Testing},
+  booktitle = {Proc. 13th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2018},
+}
+
+% ── Chunking / content-addressed ────────────────────────────────────────────
+
+@inproceedings{Muthitacharoen2001LBFS,
+  author    = {Muthitacharoen, Athicha and Chen, Benjie and Mazi{\`e}res, David},
+  title     = {A Low-Bandwidth Network File System},
+  booktitle = {Proc. 18th ACM Symposium on Operating Systems Principles (SOSP)},
+  year      = {2001},
+  doi       = {10.1145/502034.502052},
+}
+
+@inproceedings{Zhu2008DataDomain,
+  author    = {Zhu, Benjamin and Li, Kai and Patterson, Hugo},
+  title     = {Avoiding the Disk Bottleneck in the {Data Domain} Deduplication File System},
+  booktitle = {Proc. 6th USENIX Conference on File and Storage Technologies (FAST)},
+  year      = {2008},
+}
+
+@inproceedings{Xia2016FastCDC,
+  author    = {Xia, Wen and Zhou, Yukun and Jiang, Hong and Feng, Dan and Hua, Yu and Hu, Yuchong and Liu, Qing and Zhang, Yucheng},
+  title     = {{FastCDC}: A Fast and Efficient Content-Defined Chunking Approach for Data Deduplication},
+  booktitle = {Proc. USENIX Annual Technical Conference (ATC)},
+  year      = {2016},
+}
+
+@inproceedings{Quinlan2002Venti,
+  author    = {Quinlan, Sean and Dorward, Sean},
+  title     = {Venti: A New Approach to Archival Storage},
+  booktitle = {Proc. 1st USENIX Conference on File and Storage Technologies (FAST)},
+  year      = {2002},
+}
+
+@inproceedings{WilcoxOHearn2008Tahoe,
+  author    = {Wilcox-O'Hearn, Zooko and Warner, Brian},
+  title     = {Tahoe --- The Least-Authority Filesystem},
+  booktitle = {Proc. 4th ACM International Workshop on Storage Security and Survivability (StorageSS)},
+  year      = {2008},
+}
+
+% ── Optimistic replication / conflict resolution ───────────────────────────
+
+@article{Parker1983VersionVectors,
+  author  = {Parker, D. Stott and Popek, Gerald J. and Rudisin, Gerard and Stoughton, Allen and Walker, Bruce J. and Walton, Evelyn and Chow, Johanna M. and Edwards, David and Kiser, Stephen and Kline, Charles},
+  title   = {Detection of Mutual Inconsistency in Distributed Systems},
+  journal = {IEEE Transactions on Software Engineering},
+  volume  = {SE-9},
+  number  = {3},
+  pages   = {240--247},
+  year    = {1983},
+}
+
+@article{Kistler1992Coda,
+  author  = {Kistler, James J. and Satyanarayanan, M.},
+  title   = {Disconnected Operation in the {Coda} File System},
+  journal = {ACM Transactions on Computer Systems},
+  volume  = {10},
+  number  = {1},
+  pages   = {3--25},
+  year    = {1992},
+  note    = {Earlier version SOSP 1991},
+}
+
+@inproceedings{Adya2002Farsite,
+  author    = {Adya, Atul and Bolosky, William J. and Castro, Miguel and Cermak, Gerald and Chaiken, Ronnie and Douceur, John R. and Howell, Jon and Lorch, Jacob R. and Theimer, Marvin and Wattenhofer, Roger P.},
+  title     = {{FARSITE}: Federated, Available, and Reliable Storage for an Incompletely Trusted Environment},
+  booktitle = {Proc. 5th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2002},
+}
+
+@misc{KeybaseKBFS,
+  author       = {{Keybase}},
+  title        = {Understanding the {Keybase} Filesystem},
+  howpublished = {\url{https://book.keybase.io/docs/files/details}},
+  note         = {Technical documentation, accessed 2026-07-21},
+}
+
+@inproceedings{Reiher1994Ficus,
+  author    = {Reiher, Peter and Heidemann, John and Ratner, David and Skinner, Greg and Popek, Gerald},
+  title     = {Resolving File Conflicts in the {Ficus} File System},
+  booktitle = {Proc. USENIX Summer Technical Conference},
+  year      = {1994},
+}
+
+@inproceedings{Terry1995Bayou,
+  author    = {Terry, Douglas B. and Theimer, Marvin M. and Petersen, Karin and Demers, Alan J. and Spreitzer, Mike J. and Hauser, Carl H.},
+  title     = {Managing Update Conflicts in {Bayou}, a Weakly Connected Replicated Storage System},
+  booktitle = {Proc. 15th ACM Symposium on Operating Systems Principles (SOSP)},
+  year      = {1995},
+}
+
+@inproceedings{Muthitacharoen2002Ivy,
+  author    = {Muthitacharoen, Athicha and Morris, Robert and Gil, Thomer M. and Chen, Benjie},
+  title     = {{Ivy}: A Read/Write Peer-to-Peer File System},
+  booktitle = {Proc. 5th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2002},
+}
+
+@inproceedings{Shapiro2011CRDT,
+  author    = {Shapiro, Marc and Pregui{\c{c}}a, Nuno and Baquero, Carlos and Zawirski, Marek},
+  title     = {Conflict-Free Replicated Data Types},
+  booktitle = {Proc. 13th International Symposium on Stabilization, Safety, and Security of Distributed Systems (SSS)},
+  year      = {2011},
+}
+
+@article{Kleppmann2017JSONCRDT,
+  author  = {Kleppmann, Martin and Beresford, Alastair R.},
+  title   = {A Conflict-Free Replicated {JSON} Datatype},
+  journal = {IEEE Transactions on Parallel and Distributed Systems},
+  volume  = {28},
+  number  = {10},
+  pages   = {2733--2746},
+  year    = {2017},
+}
+
+@inproceedings{Kleppmann2019LocalFirst,
+  author    = {Kleppmann, Martin and Wiggins, Adam and van Hardenberg, Peter and McGranaghan, Mark},
+  title     = {Local-First Software: You Own Your Data, in spite of the Cloud},
+  booktitle = {Proc. ACM SIGPLAN International Symposium on New Ideas, New Paradigms, and Reflections on Programming and Software (Onward!)},
+  year      = {2019},
+}
+
+@inproceedings{Elmerfs2021,
+  author    = {Vaillant, Romain and Vasilas, Dimitrios and Shapiro, Marc and Nguyen, Thuy Linh},
+  title     = {{CRDTs} for Truly Concurrent File Systems},
+  booktitle = {Proc. 13th ACM Workshop on Hot Topics in Storage and File Systems (HotStorage)},
+  year      = {2021},
+  pages     = {35--41},
+  doi       = {10.1145/3465332.3470872},
+  note      = {ElmerFS},
+}
+
+% ── Cryptographic / untrusted storage ──────────────────────────────────────
+
+@inproceedings{Blaze1993CFS,
+  author    = {Blaze, Matt},
+  title     = {A Cryptographic File System for {Unix}},
+  booktitle = {Proc. 1st ACM Conference on Computer and Communications Security (CCS)},
+  year      = {1993},
+  pages     = {9--16},
+}
+
+@inproceedings{Kallahalla2003Plutus,
+  author    = {Kallahalla, Mahesh and Riedel, Erik and Swaminathan, Ram and Wang, Qian and Fu, Kevin},
+  title     = {{Plutus}: Scalable Secure File Sharing on Untrusted Storage},
+  booktitle = {Proc. 2nd USENIX Conference on File and Storage Technologies (FAST)},
+  year      = {2003},
+}
+
+@inproceedings{Goh2003SiRiUS,
+  author    = {Goh, Eu-Jin and Shacham, Hovav and Modadugu, Nagendra and Boneh, Dan},
+  title     = {{SiRiUS}: Securing Remote Untrusted Storage},
+  booktitle = {Proc. Network and Distributed System Security Symposium (NDSS)},
+  year      = {2003},
+}
+
+@inproceedings{Grolimund2006Cryptree,
+  author    = {Grolimund, Dominik and Meisser, Luzius and Schmid, Stefan and Wattenhofer, Roger},
+  title     = {{Cryptree}: A Folder Tree Structure for Cryptographic File Systems},
+  booktitle = {Proc. 25th IEEE Symposium on Reliable Distributed Systems (SRDS)},
+  year      = {2006},
+}
+
+@inproceedings{Fu2006KeyRegression,
+  author    = {Fu, Kevin and Kamara, Seny and Kohno, Tadayoshi},
+  title     = {Key Regression: Enabling Efficient Key Distribution for Secure Distributed Storage},
+  booktitle = {Proc. Network and Distributed System Security Symposium (NDSS)},
+  year      = {2006},
+}
+
+@inproceedings{Li2004SUNDR,
+  author    = {Li, Jinyuan and Krohn, Maxwell and Mazi{\`e}res, David and Shasha, Dennis},
+  title     = {Secure Untrusted Data Repository ({SUNDR})},
+  booktitle = {Proc. 6th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2004},
+}
+
+@inproceedings{Feldman2010SPORC,
+  author    = {Feldman, Ariel J. and Zeller, William P. and Freedman, Michael J. and Felten, Edward W.},
+  title     = {{SPORC}: Group Collaboration using Untrusted Cloud Resources},
+  booktitle = {Proc. 9th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2010},
+}
+
+@inproceedings{Mahajan2011Depot,
+  author    = {Mahajan, Prince and Setty, Srinath and Lee, Sangmin and Clement, Allen and Alvisi, Lorenzo and Dahlin, Mike and Walfish, Michael},
+  title     = {Depot: Cloud Storage with Minimal Trust},
+  booktitle = {Proc. 9th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2010},
+}
+
+@inproceedings{Hu2020Ghostor,
+  author    = {Hu, Yuncong and Kumar, Sam and Popa, Raluca Ada},
+  title     = {Ghostor: Toward a Secure Data-Sharing System from Decentralized Trust},
+  booktitle = {Proc. 17th USENIX Symposium on Networked Systems Design and Implementation (NSDI)},
+  year      = {2020},
+}
+
+@inproceedings{Chen2020Metal,
+  author    = {Chen, Weikeng and Popa, Raluca Ada},
+  title     = {Metal: A Metadata-Hiding File-Sharing System},
+  booktitle = {Proc. Network and Distributed System Security Symposium (NDSS)},
+  year      = {2020},
+}
+
+@inproceedings{Chen2022Titanium,
+  author    = {Chen, Weikeng and Hoang, Thang and Guajardo, Jorge and Yavuz, Attila A.},
+  title     = {Titanium: A Metadata-Hiding File-Sharing System with Malicious Security},
+  booktitle = {Proc. Network and Distributed System Security Symposium (NDSS)},
+  year      = {2022},
+}
+
+@inproceedings{Bessani2011DepSky,
+  author    = {Bessani, Alysson and Correia, Miguel and Quaresma, Bruno and Andr{\'e}, Fernando and Sousa, Paulo},
+  title     = {{DepSky}: Dependable and Secure Storage in a Cloud-of-Clouds},
+  booktitle = {Proc. 6th European Conference on Computer Systems (EuroSys)},
+  year      = {2011},
+}
+
+@inproceedings{Backendal2023MEGA,
+  author    = {Backendal, Matilda and Haller, Miro and Paterson, Kenneth G.},
+  title     = {{MEGA}: Malleable Encryption Goes Awry},
+  booktitle = {Proc. IEEE Symposium on Security and Privacy (S\&P)},
+  year      = {2023},
+}
+
+@inproceedings{Backendal2024BrokenEcosystem,
+  author    = {Backendal, Matilda and Haller, Miro and Paterson, Kenneth G.},
+  title     = {End-to-End Encrypted Cloud Storage in the Wild: A Broken Ecosystem},
+  booktitle = {Proc. ACM SIGSAC Conference on Computer and Communications Security (CCS)},
+  year      = {2024},
+}
+
+% ── Structure / venue reference (implementation & eval) ────────────────────
+
+@inproceedings{Cho2024RFUSE,
+  author    = {Cho, Kyu-Jin and Choi, Jaewon and Kwon, Hyungjoon and Kim, Jin-Soo},
+  title     = {{RFUSE}: Modernizing Userspace Filesystem Framework through Scalable Kernel-Userspace Communication},
+  booktitle = {Proc. 22nd USENIX Conference on File and Storage Technologies (FAST)},
+  year      = {2024},
+}

@@ -1,0 +1,16 @@
+[package]
+name = "zero-sfs-nosql"
+version.workspace = true
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository.workspace = true
+description = "sfs NoSQL surface (D-23 Annex A): KV / document store projected over the sfs engine"
+
+[dependencies]
+sfs-core = { path = "../sfs-core", package = "zero-sfs-core" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lib]
+name = "sfs_nosql"

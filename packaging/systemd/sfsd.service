@@ -1,0 +1,29 @@
+# sfs local daemon (WS12 12.6) — socket-activated.
+#
+# Configure the served container and key in /etc/sfs/sfsd.conf, e.g.:
+#   SFSD_CONTAINER=/dev/disk/by-uuid/....
+#   SFSD_ARGS=--key-file /etc/sfs/vault.key --alias 1
+# For a --password container, provide the passphrase via $SFS_PASSWORD in a
+# root-only EnvironmentFile.
+[Unit]
+Description=sfs local multi-client daemon
+Requires=sfsd.socket
+After=sfsd.socket local-fs.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/sfs/sfsd.conf
+# The socket arrives on fd 3 via socket activation; sfsd reads $LISTEN_FDS.
+ExecStart=/usr/local/sbin/sfsd --container ${SFSD_CONTAINER} $SFSD_ARGS
+Restart=on-failure
+RestartSec=2
+# Hardening — the daemon needs the container device and /run/sfs only.
+RuntimeDirectory=sfs
+RuntimeDirectoryMode=0700
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

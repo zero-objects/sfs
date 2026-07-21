@@ -1,0 +1,137 @@
+\section{Introduction}
+\label{sec:intro}
+
+The motivating question for \sfs{} is simple: what should a filesystem look
+like when many software agents edit one project concurrently across machine
+boundaries?  Git provides durable history, branching, and explicit merge, but
+its repository and commit model sits above the live filesystem.  File
+synchronizers propagate live state, but commonly reduce a concurrent edit to a
+whole-file conflict.  An \emph{agentic-time filesystem} should make history and
+causality intrinsic, synchronize continuously, preserve rather than overwrite
+unresolved alternatives, and still present ordinary files to tools that know
+nothing about the replication protocol.
+
+The immediate design prompt came from Theo Browne's 2026 discussion of source
+control, filesystems, and a ``Dropbox for devs''~\citep{Browne2026Ideas}.  The
+segment asks for one code-tree structure across local machines and cloud
+agents, with content materialized when a participant touches it rather than
+through manual clone and worktree choreography.  \sfs{} takes that prompt as a
+filesystem problem, then adds the properties needed for concurrent autonomous
+writers: retained causal history, fragment-level conflict visibility, client-
+side encryption, and signed writer authorization.  We use \emph{agentic time}
+for this resulting workload, not as a claim that the later mechanisms appeared
+in the original prompt.
+
+Local storage abstractions are usually divided by execution and trust boundary.
+A kernel filesystem owns raw media and POSIX semantics; a portable userspace
+filesystem places a container on another filesystem; a browser uses an
+in-memory or origin-private backend; and cloud synchronization converts local
+state into provider objects.  Snapshots or a version-control system add
+history, while an encrypting layer protects the remote copy.  The resulting
+stack works, but the boundaries duplicate identity, causality, indexing, and
+recovery state.
+
+This mismatch matters for local-first workloads~\citep{Kleppmann2019LocalFirst}
+in which the same state is edited on several machines, may be stored by a
+provider that should not see its contents, and is consumed through more than
+one execution environment.  Agentic development is the primary workload:
+small, frequent, partly overlapping changes from independent actors must remain
+recoverable and synchronizable without forcing each agent to coordinate an
+explicit commit.  The architecture also applies to financial, collaborative,
+or personal-data applications whose virtual filesystem is useful only when its
+bytes remain client-side encrypted and writer-authorized from browser or native
+client through persistence and synchronization.  The service should transport
+and retain state without ever receiving the content or metadata key.
+
+Prior systems cover large parts of this space.  Versioning filesystems retain
+past states~\citep{Santry1999Elephant,Soules2003CVFS,Peterson2005Ext3cow}; Coda,
+Ficus, and Ivy support optimistic replication~\citep{Kistler1992Coda,
+Reiher1994Ficus,Muthitacharoen2002Ivy}; Plutus, SiRiUS, SUNDR, and SPORC address
+sharing over untrusted storage under different threat
+models~\citep{Kallahalla2003Plutus,Goh2003SiRiUS,Li2004SUNDR,Feldman2010SPORC};
+and WNFS and Peergos combine encrypted, portable, collaborative
+storage~\citep{WNFSspec,Peergos}.  Ceph demonstrates one distributed object
+substrate behind file, block, and object interfaces~\citep{Weil2006Ceph}.
+Consequently, our claim is not that any one capability, nor the general idea of
+multiple surfaces over one substrate, is new.
+
+\sfs{} explores a narrower systems question: \emph{what follows if a
+position-addressed fragment version map is the common state representation
+across execution and trust boundaries?}  A unit has a stable UUID, a sparse
+version vector, and an ordered map from fragment position to the causal dot of
+the selected bytes.  A write replaces only the affected positions.  The same
+map then provides four functions:
+
+\begin{enumerate}[leftmargin=1.6em,itemsep=2pt]
+  \item it is the materialized current version and the index into retained
+    fragment history;
+  \item it is the manifest used to identify missing or changed synchronization
+    payloads;
+  \item together with the version vector, it classifies concurrent updates per
+    fragment, automatically merging disjoint changes and preserving overlapping
+    ones as strains; and
+  \item its logical identity is independent of physical location and backend,
+    allowing the same container semantics in a raw-device kernel VFS, a
+    userspace host-file VFS, an in-memory WebAssembly adapter, and an encrypted
+    remote transport.
+\end{enumerate}
+
+Several supporting choices make this representation usable as a filesystem and
+application VFS.  Deterministic fixed-size fragments give constant-time
+offset-to-fragment addressing within a geometry band.  A double-buffered
+authenticated header is the atomic publication point, while an optional
+write-ahead log and bounded undo records cover asynchronous and in-place paths.
+Metadata is always protected by AES-GCM; content is selectable per fragment as
+GCM, XTS, or plaintext.  The secure application profile selects GCM content and
+an owner-signed writer set.  In that profile the service receives no content
+key, path, metadata plaintext, or content plaintext.  Account, object,
+version-vector, size, timing, and access-pattern metadata remain visible.
+Per-record Ed25519 signatures and the writer set authorize multi-writer record
+frontiers.  These mechanisms are described in \cref{sec:design}.
+
+The design is implemented rather than simulated.  A
+\texttt{\#![forbid(unsafe\_code)]} Rust core, a FUSE adapter, and an independent
+in-kernel C driver read and write the current v12 format.  The same engine is
+also exposed through a C ABI and experimental in-memory WebAssembly bindings.
+Synchronization runs unchanged against a blind service or a live peer
+implementing the same transport contract.  Controlled functional scenarios
+follow convergence through two and three replicas, hosted TLS, and a live peer.
+The performance study separately compares the raw-device kernel path and the
+container-on-ext4 FUSE path only with matching stacks (\cref{sec:eval}).
+
+\paragraph{Contributions.}
+\begin{itemize}[leftmargin=1.4em,itemsep=2pt]
+  \item \textbf{A fragment-causal storage representation} in which the ordered
+    fragment map and sparse version vector jointly serve local history,
+    synchronization, and sub-file conflict classification
+    (\cref{subsec:mvcc,subsec:sync}).
+  \item \textbf{Execution- and topology-independent storage}: one v12 logical
+    format is implemented by a raw-device kernel VFS, a userspace host-file VFS,
+    the Rust engine and C ABI, and experimental in-memory WebAssembly bindings;
+    one synchronization protocol operates against either a blind multi-tenant
+    service or another live container, including propagation of concurrent
+    frontiers, writer sets, and epoch-tagged key grants
+    (\cref{subsec:transport,sec:impl}).
+  \item \textbf{An atomic-publication, recovery, and allocation design}
+    (\cref{subsec:commit,subsec:alloc}): a double-buffered, sequence-wins header
+    commit plus fragment-granular copy-on-write and bounded undo records over a
+    flat three-region allocator.  An optional WAL serves the asynchronous write
+    path.  File content avoids recursive path shadowing in a global CoW tree;
+    the catalog tries retain their own CoW cost.
+  \item \textbf{A controlled artifact evaluation}
+    (\cref{sec:impl,sec:eval}): deterministic multi-replica scenarios for
+    merge, retained conflict, resolution, hosted sync, and live-peer sync, plus
+    a fault-aware Linux throughput study that reports both the competitive
+    native path and the remaining encrypted FUSE-read deficit.
+\end{itemize}
+
+A document/KV projection is included as an annex
+(\cref{sec:annex-nosql}) rather than a primary
+contribution.  It is useful evidence that the unit abstraction is not tied to
+POSIX paths, but the paper's subject is the backend and its VFS, SaaS, peer, and
+WebAssembly boundaries.
+
+\Cref{sec:background} defines the representation and positions the design;
+\cref{sec:design} gives its mechanisms and invariants; \cref{sec:impl,sec:eval}
+describe the artifact and evaluation; and \cref{sec:related,sec:discussion}
+separate the contribution from related systems and state its limits.

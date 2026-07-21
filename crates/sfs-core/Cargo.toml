@@ -1,0 +1,71 @@
+[package]
+name = "zero-sfs-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "sfs filesystem engine — identity+version-addressed versioning container"
+
+[dependencies]
+thiserror      = { workspace = true }
+aes-gcm        = { workspace = true }
+aes            = { workspace = true }
+xts-mode       = { workspace = true }
+hkdf           = { workspace = true }
+hmac           = { workspace = true }
+argon2         = "0.5"
+sha2           = { workspace = true }
+crc32fast      = { workspace = true }
+getrandom      = { workspace = true }
+ed25519-dalek  = { workspace = true }
+x25519-dalek   = { workspace = true }
+zeroize        = { workspace = true }
+
+[features]
+# Enables global AtomicU64 performance counters (Stats / bump! macro).
+# Default OFF: the bump! macro compiles to nothing, making instrumentation
+# genuinely zero-cost in the default build.
+stats = []
+
+# wasm target adapter: hard-disables the std::thread-based parallel decrypt
+# pool (wasm32-unknown-unknown has no working threads → thread::spawn panics
+# at runtime).  With this feature — or on any wasm32 target — fragment decrypt
+# always runs serially.  Read correctness is identical; only the fan-out over
+# cores is dropped.  See `decrypt_pool` and the `parallel` gate in
+# `version::store::Engine::read_at`.
+wasm = []
+
+# Commit-machinery phase profiler (MEASUREMENT ONLY). Default OFF: every
+# `phase!`/`prof_add!` site compiles to nothing. See src/commit_profile.rs.
+commit_profile = []
+
+[dev-dependencies]
+tempfile  = { workspace = true }
+proptest  = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
+crc32fast = { workspace = true }
+
+[[bench]]
+name    = "read_hotpath"
+harness = false
+
+[[bench]]
+name    = "write_path"
+harness = false
+
+[[bench]]
+name    = "resolve_trie"
+harness = false
+
+[[bench]]
+name    = "chunking"
+harness = false
+
+[[bench]]
+name    = "crypto"
+harness = false
+
+[lib]
+name = "sfs_core"

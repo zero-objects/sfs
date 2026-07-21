@@ -1,0 +1,15 @@
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+sections/*.aux
+
+# Built PDFs
+paper.pdf
+sfs_Paper_Preprint.pdf

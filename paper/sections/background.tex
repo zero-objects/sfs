@@ -1,0 +1,141 @@
+\section{Background and the Capability Gap}
+\label{sec:background}
+
+\subsection{One Update, Several Representations}
+
+Consider two replicas that start from the same file.  Replica A changes bytes
+in one region and replica B changes another.  A conventional local filesystem
+records two unrelated block updates.  A file-level synchronizer sees two
+concurrent file versions and must either select one or ask a content-specific
+merger.  Encryption and remote storage add further mappings between logical
+content, local physical blocks, and opaque provider objects.
+
+\sfs{} preserves causal structure below every surface and separates logical
+fragment identity from its physical backend and cipher encoding.  The basic
+state of a content stream is
+
+\begin{equation}
+  U = (\mathit{uuid}, e, \ell, VV, M), \qquad
+  M[f] = d_f = (a_f,c_f),
+\end{equation}
+
+where $e$ is the fragment-size exponent, $\ell$ the logical length of the last
+fragment, $VV$ a sparse version vector, and $M$ an ordered map from fragment
+index $f$ to a causal dot containing replica alias $a_f$ and counter $c_f$.
+This tuple is the replica-invariant logical head, not the complete physical
+record.  A materialized record additionally contains selected locations and a
+parent address used to walk local retained lineage.  Parent is omitted from
+$U$ because replicas may store the same logical head at different addresses
+and construct different physical parent chains during import, relocation, or
+re-ciphering.  It is consequently excluded from logical record signatures and
+transport identity.  Physical locations and cipher encodings are omitted for
+the same reason: they may change without creating a new logical version.
+
+This model separates three granularities that are often conflated.  A
+byte-range is the API granularity of a read or write; a fragment is the unit of
+storage, transfer, and merge classification; and a unit is the scope of the
+version vector and user-visible conflict.  Consequently, \sfs{} provides
+byte-addressed I/O but fragment-granular causality.
+
+\subsection{Design Requirements}
+
+The representation is useful only if it satisfies the surrounding systems
+requirements.  First, reconstructing the current unit must not replay its
+history: the head map and selected fragments are materialized.  Second,
+publication of a new map and catalog roots must be atomic.  Third, a sync pass
+must transfer changed or missing fragments while retaining all concurrent
+frontiers.  Fourth, the transport must not need content keys or plaintext.
+Fifth, physical encoding and execution surface must be separable from logical
+identity so that kernel, userspace, embedded, and browser-facing adapters can
+share the format.
+
+These requirements are not individually new.  \Cref{tab:positioning} therefore
+positions representative systems by their architectural center rather than by
+a checklist constructed around \sfs{}.
+
+\begin{figure}[t]
+  \centering
+  \resizebox{\linewidth}{!}{%
+  \begin{tikzpicture}[
+    surface/.style={draw, rounded corners, align=center, minimum width=2.7cm,
+                    minimum height=0.8cm, fill=RoyalBlue!8},
+    core/.style={draw, rounded corners, align=center, minimum width=8.8cm,
+                 minimum height=1.25cm, fill=ForestGreen!10, very thick},
+    backend/.style={draw, rounded corners, align=center, minimum width=3.1cm,
+                    minimum height=0.9cm, fill=black!4},
+    link/.style={<->, >=Latex, thick}]
+    \node[surface] (kernel) at (-4.5,2.1) {Linux kernel VFS};
+    \node[surface] (fuse)   at (-1.5,2.1) {FUSE mount};
+    \node[surface] (api)    at ( 1.5,2.1) {Rust core / C ABI};
+    \node[surface] (wasm)   at ( 4.5,2.1) {experimental wasm VFS};
+
+    \node[core] (state) at (0,0)
+      {v12 fragment-causal state\\
+       UUID + version vector + position$\rightarrow$dot map\\
+       materialized head, retained history and strains, authenticated metadata};
+
+    \node[backend] (raw)  at (-4.0,-2.0) {raw block device};
+    \node[backend] (file) at ( 0.0,-2.0) {host file or memory image};
+    \node[backend] (sync) at ( 4.0,-2.0) {one sync transport\\blind SaaS or live peer};
+
+    \draw[link] (kernel) -- (state);
+    \draw[link] (fuse) -- (state);
+    \draw[link] (api) -- (state);
+    \draw[link] (wasm) -- (state);
+    \draw[link] (state) -- (raw);
+    \draw[link] (state) -- (file);
+    \draw[link] (state) -- (sync);
+  \end{tikzpicture}%
+  }
+  \caption{One logical representation crosses execution boundaries above and
+  physical or trust boundaries below.  The hosted service stores protocol
+  objects rather than interpreting filesystem operations.}
+  \label{fig:architecture}
+\end{figure}
+
+\Cref{fig:architecture} is the paper's organizing distinction.  The surfaces
+do not create their own version models, and the hosted path does not introduce
+a server-authoritative namespace.  They adapt one logical state to different
+execution and persistence boundaries.
+
+\begin{table}[t]
+  \centering
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \caption{Architectural centers of representative neighboring systems.  The
+    rows are not an ordering: several systems provide stronger guarantees than
+    \sfs{} under their chosen threat model.}
+  \label{tab:positioning}
+  \begin{tabular}{@{}p{0.19\linewidth}p{0.22\linewidth}p{0.22\linewidth}p{0.26\linewidth}@{}}
+    \toprule
+    System & Native state/version unit & Replication and trust & Primary surface \\
+    \midrule
+    CVFS~\citep{Soules2003CVFS} & per-write file versions & local storage & mounted versioning FS \\
+    Ori~\citep{Mashtizadeh2013Ori} & immutable objects and commits & optimistic peer replication & mounted replicated FS \\
+    Coda~\citep{Kistler1992Coda} & file and volume state & disconnected clients, trusted servers & mounted distributed FS \\
+    \shortstack[l]{SUNDR / SPORC\\\citep{Li2004SUNDR,Feldman2010SPORC}} & signed version structures / operations & untrusted server with fork guarantees & repository / collaborative app \\
+    WNFS~\citep{WNFSspec} & encrypted content-addressed nodes & state-based CRDT over untrusted storage & library and web applications \\
+    Peergos~\citep{Peergos} & encrypted chunked filesystem & encrypted cloud/P2P synchronization & web and desktop clients \\
+    Ceph~\citep{Weil2006Ceph} & distributed objects & server-coordinated trusted cluster & file, block, and object services \\
+    \midrule
+    \textbf{SFS} & position-addressed fragment version map & optimistic VV sync through HbC store or live peer & kernel/FUSE FS, library, experimental wasm \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+WNFS is the closest web-facing neighbor: it makes encrypted,
+content-addressed tree state a state-based CRDT for library and browser use,
+whereas \sfs{} makes an ordered position-to-dot map the unit of local lineage
+and reconciliation and carries that representation through mounted raw-device
+and FUSE surfaces as well as library and experimental wasm surfaces.  This is
+a difference in architectural center, not a claim that either design subsumes
+the other.
+
+The broader distinction is the role assigned to the fragment map.  CVFS and
+snapshot filesystems establish that native versioning is useful; optimistic filesystems
+establish version vectors and disconnected operation; WNFS and Peergos show
+that encrypted collaboration can be portable; and Ceph shows that a substrate
+can serve several APIs.  \sfs{} combines lessons from these lines, but studies
+the fragment map itself as the shared boundary between history,
+synchronization, conflict isolation, and execution backends.  The NoSQL annex
+tests semantic projection as a consequence, not as the organizing goal.

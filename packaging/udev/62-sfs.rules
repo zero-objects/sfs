@@ -1,0 +1,31 @@
+# sfs superblock detection for udev / blkid (WS12 12.4)
+#
+# System libblkid does not (yet) know the sfs magic, so `blkid` in the stock
+# 60-persistent-storage.rules finds nothing on an sfs volume.  This rule runs
+# AFTER those (number 62 > 60) and, only when nothing else claimed the device,
+# invokes the read-only prober to import ID_FS_TYPE / ID_FS_UUID / ID_FS_LABEL.
+# That makes `lsblk -f` show `sfs` + UUID and creates the /dev/disk/by-uuid and
+# by-label symlinks that `mount UUID=… -t sfs` and fstab rely on.
+#
+# Install to /lib/udev/rules.d/62-sfs.rules (see packaging/install.sh).  The
+# upstream libblkid probe that would make this rule unnecessary lives in
+# contrib/libblkid-sfs/.
+
+SUBSYSTEM!="block", GOTO="sfs_end"
+ACTION=="remove", GOTO="sfs_end"
+
+# Skip if some earlier probe (blkid) already identified a filesystem/other usage.
+ENV{ID_FS_TYPE}=="?*", GOTO="sfs_end"
+
+# Probe whole disks and partitions with the tiny read-only header prober.
+KERNEL=="loop*|nvme*|sd*|vd*|mmcblk*|dm-*|ram*", \
+  IMPORT{program}="/usr/local/sbin/sfs-blkid-probe $devnode"
+
+# Persistent-name symlinks for sfs volumes (mirrors 60-persistent-storage.rules,
+# which cannot run for a type it does not recognise).
+ENV{ID_FS_TYPE}=="sfs", ENV{ID_FS_UUID_ENC}=="?*", \
+  SYMLINK+="disk/by-uuid/$env{ID_FS_UUID_ENC}"
+ENV{ID_FS_TYPE}=="sfs", ENV{ID_FS_LABEL_ENC}=="?*", \
+  SYMLINK+="disk/by-label/$env{ID_FS_LABEL_ENC}"
+
+LABEL="sfs_end"

@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  build-and-test:
+    name: Build & Test (${{ matrix.os }}, Rust ${{ matrix.rust }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust ${{ matrix.rust }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: rustfmt, clippy
+
+      - name: Cache Cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.rust }}-
+
+      # ── Default workspace build + test (no FUSE feature) ─────────────────
+      # Runs on all three OS without any native FUSE library installed.
+      # sfs-mount is included in the workspace; the fuser/winfsp deps are
+      # optional and are NOT activated here.
+      - name: Build workspace (no FUSE)
+        run: cargo build --workspace
+
+      - name: Run tests (no FUSE)
+        run: cargo test --workspace
+
+      - name: Clippy (no FUSE)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # ── FUSE feature build (Linux only, libfuse3 installed) ───────────────
+      # Builds sfs-mount with --features fuse to verify the fuser dep resolves
+      # and the cfg-gated fuse_unix module compiles when fuser is available.
+      # This step does NOT run a real mount (FUSE E2E requires kernel FUSE
+      # support + privilege; deferred to Task 8).
+      #
+      # macFUSE and WinFsp feature-builds + real mounts run on dedicated test
+      # systems (macOS with macFUSE 4.x, Windows with WinFsp 2.x), not in
+      # standard GH-Actions CI — tracked as manual gates in
+      # docs/RELEASE-CHECKLIST.md.
+      - name: Install libfuse3-dev (Linux only)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y libfuse3-dev
+
+      - name: Build sfs-mount --features fuse (Linux only)
+        if: runner.os == 'Linux'
+        run: cargo build -p zero-sfs-mount --features fuse
+
+      # ── sfs-ffi C E2E ─────────────────────────────────────────────────────
+      - name: Build sfs-ffi release (for C E2E)
+        run: cargo build --release -p zero-sfs-ffi
+
+      - name: C E2E smoke test (macOS / Linux)
+        if: runner.os != 'Windows'
+        run: |
+          # Compile the C smoke program against the built library.
+          SRC=crates/sfs-ffi/tests/e2e_smoke.c
+          INC=crates/sfs-ffi/include
+          LIBDIR=target/release
+
+          if [ "$(uname -s)" = "Darwin" ]; then
+            cc "$SRC" -I "$INC" -L "$LIBDIR" -lsfs_ffi -o /tmp/sfs_e2e_smoke
+            DYLD_LIBRARY_PATH="$LIBDIR" /tmp/sfs_e2e_smoke
+          else
+            # Linux: link statically so no LD_LIBRARY_PATH is needed.
+            cc "$SRC" -I "$INC" "$LIBDIR/libsfs_ffi.a" -ldl -lpthread -lm \
+               -o /tmp/sfs_e2e_smoke
+            /tmp/sfs_e2e_smoke
+          fi
+
+      - name: C E2E smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          SRC=crates/sfs-ffi/tests/e2e_smoke.c
+          INC=crates/sfs-ffi/include
+          LIBDIR=target/release
+
+          # On Windows Rust produces sfs_ffi.dll + sfs_ffi.dll.lib (MSVC)
+          # or libsfs_ffi.dll + libsfs_ffi.dll.lib (GNU).
+          # Try static lib first (libsfs_ffi.a), then dll import lib.
+          if [ -f "$LIBDIR/libsfs_ffi.a" ]; then
+            cc "$SRC" -I "$INC" "$LIBDIR/libsfs_ffi.a" -o /tmp/sfs_e2e_smoke.exe
+          else
+            cc "$SRC" -I "$INC" "-L$LIBDIR" -lsfs_ffi -o /tmp/sfs_e2e_smoke.exe
+          fi
+          /tmp/sfs_e2e_smoke.exe
+
+  supply-chain:
+    name: Supply-chain (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: cargo-deny check
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  paper:
+    name: Paper PDF
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Build paper
+        uses: xu-cheng/latex-action@v4
+        with:
+          root_file: paper.tex
+          working_directory: paper
+          texlive_version: 2026
+          os: debian
+      - name: Gate references and layout warnings
+        run: |
+          test -s paper/paper.pdf
+          if grep -E 'Citation .* undefined|Reference .* undefined|There were undefined references|Overfull \\hbox|^!' paper/paper.log; then
+            echo "paper contains unresolved references, TeX errors, or overfull boxes"
+            exit 1
+          fi
+      - name: Upload reviewable paper
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-${{ github.sha }}
+          path: paper/paper.pdf

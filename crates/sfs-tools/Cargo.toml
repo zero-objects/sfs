@@ -1,0 +1,74 @@
+[package]
+name = "zero-sfs-tools"
+version.workspace = true
+edition = "2021"
+rust-version.workspace = true
+license = "MIT OR Apache-2.0"
+repository.workspace = true
+description = "Unix-style introspection & repair tools for sfs containers"
+
+[dependencies]
+sha2       = { workspace = true }
+sfs-core   = { path = "../sfs-core", package = "zero-sfs-core" }
+sfs-mount  = { path = "../sfs-mount", package = "zero-sfs-mount", default-features = false }
+sfs-saas   = { path = "../sfs-saas", package = "zero-sfs-saas", default-features = false }
+sfs-sync   = { path = "../sfs-sync", package = "zero-sfs-sync" }
+serde_json = "1"
+hex        = "0.4"
+rand       = "0.8"
+crc32fast  = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+# For the E2E sync + recovery tests: need the in-process server.
+sfs-saas   = { path = "../sfs-saas", package = "zero-sfs-saas", features = ["server", "test-hooks"] }
+rcgen      = "0.13"
+tokio      = { version = "1", features = ["rt-multi-thread", "macros"] }
+reqwest    = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls-manual-roots", "http2"] }
+
+[[bin]]
+name = "sfs-info"
+path = "src/bin/sfs-info.rs"
+
+[[bin]]
+name = "sfs-ls"
+path = "src/bin/sfs-ls.rs"
+
+[[bin]]
+name = "sfs-stat"
+path = "src/bin/sfs-stat.rs"
+
+[[bin]]
+name = "sfs-log"
+path = "src/bin/sfs-log.rs"
+
+[[bin]]
+name = "sfs-cat"
+path = "src/bin/sfs-cat.rs"
+
+[[bin]]
+name = "sfs-fsck"
+path = "src/bin/sfs-fsck.rs"
+
+[[bin]]
+name = "sfs-conflicts"
+path = "src/bin/sfs-conflicts.rs"
+
+[[bin]]
+name = "sfs-sync"
+path = "src/bin/sfs-sync.rs"
+
+[[bin]]
+name = "sfs-recovery"
+path = "src/bin/sfs-recovery.rs"
+
+[[bin]]
+name = "sfs-mkgolden"
+path = "src/bin/sfs-mkgolden.rs"
+
+[[bin]]
+name = "sfs-evict"
+path = "src/bin/sfs-evict.rs"
+
+[lib]
+name = "sfs_tools"

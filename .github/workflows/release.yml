@@ -1,0 +1,175 @@
+# .github/workflows/release.yml
+# Tag-driven release. Push a tag v*.*.* (e.g. v1.0.0-rc.1) and this builds a
+# scrubbed source bundle, Linux userspace binaries, and the paper PDF, then
+# publishes a GitHub release. Tags containing "-" (rc/beta) are marked
+# prerelease.
+#
+# Deliberately lean for the RC: no cargo-dist multi-target matrix, no code
+# signing, no package-manager fan-out (deb/rpm/docker/msi/homebrew/aur) yet —
+# those mirror the zerodds pipeline and are added when the infrastructure
+# (runners, signing secrets) is available. The kernel module ships as source
+# (DKMS), not as a prebuilt binary.
+name: release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0-rc.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── clean, scrubbed source bundle (the make-release.sh guardrail proves it
+  #    carries no internal machine/host identifiers) ─────────────────────────
+  source-bundle:
+    name: Source bundle
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve tag
+        id: meta
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+      - name: Build scrubbed release/ bundle
+        run: ./make-release.sh   # fails closed if any internal identifier leaks
+      - name: Tarball + checksum
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          NAME="sfs-${TAG#v}-src"
+          mv release "$NAME"
+          tar czf "$NAME.tar.gz" "$NAME"
+          sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-bundle
+          path: |
+            sfs-*-src.tar.gz
+            sfs-*-src.tar.gz.sha256
+
+  # ── Linux x86_64 userspace binaries (mkfs/mount/tools/saas). macOS + Windows
+  #    remain resource-blocked gates (see docs/RELEASE-CHECKLIST.md). ─────────
+  linux-binaries:
+    name: Linux x86_64 binaries
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve tag
+        id: meta
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build deps
+        run: sudo apt-get update -qq && sudo apt-get install -y libfuse3-dev pkg-config
+      - name: Build release binaries
+        run: |
+          cargo build --release --workspace --exclude zero-sfs-wasm
+          cargo build --release -p zero-sfs-mount --features fuse
+      - name: Collect binaries
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          NAME="sfs-${TAG#v}-x86_64-linux"
+          mkdir -p "$NAME/bin"
+          find target/release -maxdepth 1 -type f -perm -u+x ! -name '*.d' \
+               -exec sh -c 'file "$1" | grep -q ELF' _ {} \; -print \
+            | while read -r b; do cp "$b" "$NAME/bin/"; done
+          cp README.md LICENSE-MIT LICENSE-APACHE "$NAME/"
+          tar czf "$NAME.tar.gz" "$NAME"
+          sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256"
+          echo "== shipped binaries =="; ls -1 "$NAME/bin"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: |
+            sfs-*-x86_64-linux.tar.gz
+            sfs-*-x86_64-linux.tar.gz.sha256
+
+  # ── peer-reviewable preprint, built in a pinned TeXLive environment ───────
+  paper:
+    name: Paper PDF
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build paper
+        uses: xu-cheng/latex-action@v4
+        with:
+          root_file: paper.tex
+          working_directory: paper
+          texlive_version: 2026
+          os: debian
+      - name: Gate references and layout warnings
+        run: |
+          test -s paper/paper.pdf
+          if grep -E 'Citation .* undefined|Reference .* undefined|There were undefined references|Overfull \\hbox|^!' paper/paper.log; then
+            echo "paper contains unresolved references, TeX errors, or overfull boxes"
+            exit 1
+          fi
+      - name: Package paper
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          NAME="sfs-${TAG#v}-paper.pdf"
+          cp paper/paper.pdf "$NAME"
+          sha256sum "$NAME" > "$NAME.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper
+          path: |
+            sfs-*-paper.pdf
+            sfs-*-paper.pdf.sha256
+
+  # ── publish the GitHub release ──────────────────────────────────────────────
+  github-release:
+    name: Publish GitHub release
+    needs: [source-bundle, linux-binaries, paper]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist }
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.source-bundle.outputs.tag }}
+          generate_release_notes: true
+          prerelease: ${{ contains(needs.source-bundle.outputs.tag, '-') }}
+          draft: false
+          body: |
+            ## sfs ${{ needs.source-bundle.outputs.tag }}
+
+            A fragment-causal filesystem substrate for retained history,
+            continuous multi-writer synchronization, client-side-encrypted
+            hosted storage, live peers, and multiple execution surfaces.
+
+            ### Assets
+            - `sfs-*-src.tar.gz` — full source bundle (crates, kernel driver
+              source, curated docs). Build the kernel module via DKMS.
+            - `sfs-*-x86_64-linux.tar.gz` — prebuilt Linux userspace tools
+              (`mkfs-sfs`, `mount-sfs`, `sfs-mount`, the `sfs-*` CLIs, `sfsd`).
+            - `sfs-*-paper.pdf` — the accompanying preprint, built from the
+              tagged paper sources with unresolved-reference and layout gates.
+
+            ### crates.io
+            ```sh
+            cargo install zero-sfs-tools   # sfs-info / ls / stat / log / cat / fsck / sync
+            ```
+
+            ### Release-candidate scope
+            Kernel path and Linux FUSE are validated (see `docs/SECURITY-MODEL.md`).
+            **Pending for the final release** (infrastructure-blocked, not
+            defects): a fresh KASAN sweep, macFUSE / WinFsp / real-browser wasm
+            gates, archived raw performance data, and an independent crypto audit.
+          files: |
+            dist/**/*.tar.gz
+            dist/**/*.tar.gz.sha256
+            dist/**/*.pdf
+            dist/**/*.pdf.sha256

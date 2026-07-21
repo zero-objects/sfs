@@ -1,0 +1,18 @@
+# wasm32 build configuration for sfs-wasm.
+#
+# getrandom 0.3 (a transitive sfs-core dependency) requires an explicit backend
+# selection on wasm32-unknown-unknown; without it the target fails to *compile*
+# (`compile_error!`).  Schritt 2's write path also draws random bytes at runtime
+# (GCM nonces, Argon2id salt), which this same backend serves.  `wasm_js` routes
+# getrandom 0.3 to the browser's crypto.getRandomValues via wasm-bindgen; the
+# matching `wasm_js` cargo feature is enabled in Cargo.toml.
+#
+# NOTE: cargo reads .cargo/config.toml relative to the invocation's working
+# directory, so this file applies when the build is driven from THIS crate
+# directory — which is exactly how wasm-pack / wasm-bindgen build it:
+#   wasm-pack build crates/sfs-wasm --target web
+# When building from the workspace root instead, pass the same flag explicitly:
+#   RUSTFLAGS='--cfg getrandom_backend="wasm_js"' \
+#     cargo build -p zero-sfs-wasm --target wasm32-unknown-unknown
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
