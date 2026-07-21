@@ -316,9 +316,10 @@ sfs_fuzz: $(MUT_CORE) sfs_mut.c sfs_mut.h sfs_fuzz.c
 
 .PHONY: verify roundtrip fuzz fuzz-soak golden clean
 golden:
-	cd $(REPO) && cargo build -p zero-sfs-tools --release \
-		--bin sfs-mkgolden --bin sfs-fsck --bin sfs-cat --bin sfs-stat \
-		--bin sfs-ls --bin sfs-write
+	# build ALL tools bins (not a hand-maintained subset): the verify harness
+	# also shells out to sfs-evict (evicttest E2 parity) and others, and a
+	# missing bin only surfaces on a clean checkout as a 127 mid-run.
+	cd $(REPO) && cargo build -p zero-sfs-tools --release
 	$(REPO)/target/release/sfs-mkgolden $(GOLDEN)
 
 verify: sfs_verify sfs_committest sfs_alloctest sfs_bigrec sfs_cowtest sfs_triecow sfs_waltest sfs_evicttest sfs_defragtest sfs_trimtest sfs_edtest sfs_xattrtest sfsctl golden
