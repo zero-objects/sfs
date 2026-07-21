@@ -84,6 +84,9 @@ struct Opts {
     device: PathBuf,
     mountpoint: PathBuf,
     read_only: bool,
+    // parsed from mount options (ro/rw/noatime/nosuid …); application to the
+    // mount(2) flag word is pending, so the field is not yet read.
+    #[allow(dead_code)]
     vfs_flags: u64,
     key_source: Option<KeySource>,
     sign_key_file: Option<PathBuf>,

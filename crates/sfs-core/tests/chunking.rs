@@ -111,8 +111,8 @@ proptest! {
         const MAX: u8 = 26;
         let ea = derive_fragsize_exp(a, FLOOR, MAX);
         let eb = derive_fragsize_exp(b, FLOOR, MAX);
-        prop_assert!(ea >= FLOOR && ea <= MAX, "ea={ea} out of bounds");
-        prop_assert!(eb >= FLOOR && eb <= MAX, "eb={eb} out of bounds");
+        prop_assert!((FLOOR..=MAX).contains(&ea), "ea={ea} out of bounds");
+        prop_assert!((FLOOR..=MAX).contains(&eb), "eb={eb} out of bounds");
         if a <= b {
             prop_assert!(ea <= eb,
                 "not monotone: size {a} -> exp {ea}, larger size {b} -> exp {eb}");

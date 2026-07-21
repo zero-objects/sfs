@@ -23,7 +23,7 @@ fn write_crypto_vectors(dir: &Path) -> std::io::Result<()> {
     let key: [u8; 32] = core::array::from_fn(|i| i as u8);
     let uuid: [u8; 16] = core::array::from_fn(|i| 0xa0u8.wrapping_add(i as u8));
     let mut out = String::new();
-    out += &format!("# crypto known-answer vectors\n");
+    out += "# crypto known-answer vectors\n";
     out += &format!("key={}\n", hex(&key));
     out += &format!("uuid={}\n", hex(&uuid));
 

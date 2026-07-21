@@ -9,8 +9,8 @@ repository.workspace = true
 description = "Client-side-encrypted sfs SaaS blob-store service (server-side; transport-agnostic)"
 
 [dependencies]
-sfs-sync   = { path = "../sfs-sync", package = "zero-sfs-sync" }
-sfs-core   = { path = "../sfs-core", package = "zero-sfs-core" }
+sfs-sync   = { path = "../sfs-sync", version = "1.0.0-rc.1", package = "zero-sfs-sync" }
+sfs-core   = { path = "../sfs-core", version = "1.0.0-rc.1", package = "zero-sfs-core" }
 tempfile   = { workspace = true }
 sha2       = { workspace = true }
 getrandom  = { workspace = true }
@@ -68,10 +68,14 @@ default = ["server"]
 [dev-dependencies]
 serde_json = "1"
 rcgen      = "0.13"
-sfs-core   = { path = "../sfs-core", package = "zero-sfs-core" }
+sfs-core   = { path = "../sfs-core", version = "1.0.0-rc.1", package = "zero-sfs-core" }
 # Self dev-dependency to turn on `test-hooks` when building the test/bench
 # targets, so `cargo test` exposes the plaintext-absence inspection hook without it being a
 # default (production) feature.
+# self dev-dependency (enables test-hooks for this crate's own tests) — MUST stay
+# path-only: a versioned self-dep can never resolve during this crate's own
+# `cargo publish` verification (chicken-and-egg). Dev-deps are omitted from the
+# published manifest, so no version is needed.
 sfs-saas   = { path = ".", package = "zero-sfs-saas", features = ["test-hooks"] }
 futures    = "0.3"
 http       = "1"

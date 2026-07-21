@@ -1734,6 +1734,7 @@ mod tests {
     // ── D-12: WriterSet (multi-user) FFI surface ──────────────────────────────
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn writerset_ffi_ro_without_key_rw_with_authorized() {
         let dir = tempdir().unwrap();
         let container = dir.path().join("ws.sfs");

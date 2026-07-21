@@ -3618,7 +3618,7 @@ impl Engine {
                 content_suite: Some(self.header.content_cipher),
                 frag_suites: Vec::new(),
                 signature: None,
-                db: old_rec.db.clone(),   // C-04: preserve DbHead across supersede (truncate-0)
+                db: old_rec.db,   // C-04: preserve DbHead across supersede (truncate-0)
                 superseded: Vec::new(),
             };
             let rec_addr = write_unit_record(&mut self.backend, &mut self.alloc, &new_rec, self.header.cipher, &self.root_key, self.header.sign_mode, self.signing_key.as_ref(), self.writer_set.as_ref(), &self.header.writer_pubkey, RecordSignIntent::Fresh)?;
@@ -3717,7 +3717,7 @@ impl Engine {
             content_suite: Some(rec_cs),
             frag_suites: rec_frag_suites,
             signature: None,
-            db: old_rec.db.clone(),   // C-04: preserve DbHead across supersede (truncate)
+            db: old_rec.db,   // C-04: preserve DbHead across supersede (truncate)
             superseded: Vec::new(),
         };
         let rec_addr = write_unit_record(&mut self.backend, &mut self.alloc, &new_rec, self.header.cipher, &self.root_key, self.header.sign_mode, self.signing_key.as_ref(), self.writer_set.as_ref(), &self.header.writer_pubkey, RecordSignIntent::Fresh)?;
@@ -3816,7 +3816,7 @@ impl Engine {
             content_suite: Some(rec_cs),
             frag_suites: rec_frag_suites,
             signature: None,
-            db: old_rec.db.clone(),   // C-04: preserve DbHead across supersede (extend)
+            db: old_rec.db,   // C-04: preserve DbHead across supersede (extend)
             superseded: Vec::new(),
         };
         let rec_addr = write_unit_record(&mut self.backend, &mut self.alloc, &new_rec, self.header.cipher, &self.root_key, self.header.sign_mode, self.signing_key.as_ref(), self.writer_set.as_ref(), &self.header.writer_pubkey, RecordSignIntent::Fresh)?;
@@ -4007,7 +4007,7 @@ impl Engine {
             content_suite: Some(rec_cs),
             frag_suites: rec_frag_suites,
             signature: None,
-            db: old_rec.db.clone(),   // C-04: preserve DbHead across supersede (write_meta)
+            db: old_rec.db,   // C-04: preserve DbHead across supersede (write_meta)
             superseded: Vec::new(),
         };
         let rec_addr = write_unit_record(&mut self.backend, &mut self.alloc, &new_rec, self.header.cipher, &self.root_key, self.header.sign_mode, self.signing_key.as_ref(), self.writer_set.as_ref(), &self.header.writer_pubkey, RecordSignIntent::Fresh)?;
@@ -8326,7 +8326,7 @@ impl Engine {
             // of a formerly packed slot) falls through to a fresh sub-slot,
             // leaving the old block valid until the atomic header switch —
             // exactly the D-20 crash-safety of a normal relocate.
-            let new_is_packed = cipher.len() > 0 && (cipher.len() as u64) < BASE_BLOCK as u64;
+            let new_is_packed = !cipher.is_empty() && (cipher.len() as u64) < BASE_BLOCK as u64;
             let reuse_inplace = !new_is_packed
                 && matches!(
                     existing_loc,
@@ -9169,6 +9169,7 @@ impl Engine {
     /// not 30 min old.  Falls back to `eviction_clock` / system clock if the
     /// fragment's creation time is not in the map (e.g. blocks written before
     /// Task 13 or after a reopen where the in-memory map is empty).
+    #[allow(clippy::too_many_arguments)]
     fn evict_block(
         &mut self,
         uuid: &Uuid,
@@ -9261,7 +9262,7 @@ impl Engine {
                 _ => {
                     let blk = self.alloc.alloc_aligned(
                         &mut self.backend,
-                        BASE_BLOCK as u32,
+                        BASE_BLOCK,
                         Region::LiveMid,
                     )?;
                     (blk.addr, 0)

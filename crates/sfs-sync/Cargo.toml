@@ -7,10 +7,10 @@ license = "MIT OR Apache-2.0"
 repository.workspace = true
 
 [dependencies]
-sfs-core = { path = "../sfs-core", package = "zero-sfs-core" }
+sfs-core = { path = "../sfs-core", version = "1.0.0-rc.1", package = "zero-sfs-core" }
 
 [dev-dependencies]
-sfs-core = { path = "../sfs-core", package = "zero-sfs-core" }
+sfs-core = { path = "../sfs-core", version = "1.0.0-rc.1", package = "zero-sfs-core" }
 tempfile = { workspace = true }
 
 [lib]

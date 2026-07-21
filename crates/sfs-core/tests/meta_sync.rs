@@ -1,3 +1,4 @@
+#![allow(clippy::doc_overindented_list_items, clippy::doc_lazy_continuation)]
 //! Item A (D-4b + D-13): the Meta stream and meta-only (directory) units must
 //! SYNC independently of content.
 //!

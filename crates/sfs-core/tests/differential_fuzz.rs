@@ -1,3 +1,4 @@
+#![allow(clippy::doc_overindented_list_items, clippy::doc_lazy_continuation)]
 //! T-01 / WS6 6.4: seeded differential fuzz — apply N random filesystem ops to
 //! the real Engine AND an in-memory shadow model, asserting after every op that
 //! the container's observable state (existence + byte content of every path)

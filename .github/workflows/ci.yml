@@ -10,11 +10,20 @@ jobs:
   build-and-test:
     name: Build & Test (${{ matrix.os }}, Rust ${{ matrix.rust }})
     runs-on: ${{ matrix.os }}
+    # Windows is informational (continue-on-error): the WinFsp mount binding is
+    # an external, resource-blocked gate (docs/RELEASE-CHECKLIST.md §3), and the
+    # winfsp-rs delay-load binding does not build in stock GH-Actions Windows
+    # without the WinFsp SDK + the `winfsp` feature. Linux and macOS gate.
+    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
         rust: [stable]
+        include:
+          - os: windows-latest
+            rust: stable
+            experimental: true
 
     steps:
       - name: Checkout repository

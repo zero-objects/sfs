@@ -47,7 +47,7 @@ name = "sfs-mount"
 path = "src/bin/sfs-mount.rs"
 
 [dependencies]
-sfs-core  = { path = "../sfs-core", package = "zero-sfs-core" }
+sfs-core  = { path = "../sfs-core", version = "1.0.0-rc.1", package = "zero-sfs-core" }
 crc32fast = { workspace = true }
 
 # Optional FUSE binding — compiled only when the `fuse` feature is enabled.

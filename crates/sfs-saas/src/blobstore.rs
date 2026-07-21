@@ -67,6 +67,7 @@ impl BlobStore {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false) // append-log: preserve existing records, index is rebuilt by scan
             .open(path)?;
         let file_len = file.metadata()?.len();
 

@@ -807,6 +807,7 @@ impl FsAdapter {
     /// Read a unit's current `(FsAttr, symlink_target, xattr-map)` from its Meta
     /// stream.  A unit with no readable meta yields synthesised attrs and an
     /// empty xattr map, so a first `set_xattr` on a bare unit still works.
+    #[allow(clippy::type_complexity)]
     fn load_meta_xattrs(
         &self,
         engine: &Engine,

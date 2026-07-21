@@ -18,7 +18,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # `wasm` feature: forces sfs-core's serial fragment-decrypt path (no std::thread
 # pool), which wasm32 cannot run.  See sfs-core/src/version/store.rs.
-sfs-core = { path = "../sfs-core", package = "zero-sfs-core", features = ["wasm"] }
+sfs-core = { path = "../sfs-core", version = "1.0.0-rc.1", package = "zero-sfs-core", features = ["wasm"] }
 wasm-bindgen = "0.2"
 serde-wasm-bindgen = "0.6"
 

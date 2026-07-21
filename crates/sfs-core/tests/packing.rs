@@ -121,13 +121,13 @@ fn packs_and_reads_at_offset(cipher: CipherSuiteId) {
     // Prove at least one fragment sits at a non-block-aligned address (a genuine
     // sub-slot, decrypted at an arbitrary offset).
     let mut saw_unaligned = false;
-    for i in 0..payloads.len() {
+    for (i, payload) in payloads.iter().enumerate() {
         let p = format!("/f{i}");
         let (addr, _len) = only_frag_loc(&eng, &p);
         if addr % BASE_BLOCK as u64 != 0 {
             saw_unaligned = true;
         }
-        assert_eq!(&eng.read(&p).unwrap(), &payloads[i], "suite {cipher}: file {i}");
+        assert_eq!(&eng.read(&p).unwrap(), payload, "suite {cipher}: file {i}");
     }
     assert!(
         saw_unaligned,

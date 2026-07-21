@@ -539,6 +539,7 @@ pub fn frame_block_puts(blocks: &[(Uuid, u32, u64, Vec<u8>)]) -> Vec<u8> {
 
 /// Parse the framing produced by [`frame_block_puts`].  Returns `None` on any
 /// truncation / length mismatch.
+#[allow(clippy::type_complexity)]
 pub fn parse_block_puts(buf: &[u8]) -> Option<Vec<(Uuid, u32, u64, Vec<u8>)>> {
     let mut off = 0usize;
     let count = read_u32(buf, &mut off)? as usize;

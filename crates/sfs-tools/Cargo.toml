@@ -9,10 +9,10 @@ description = "Unix-style introspection & repair tools for sfs containers"
 
 [dependencies]
 sha2       = { workspace = true }
-sfs-core   = { path = "../sfs-core", package = "zero-sfs-core" }
-sfs-mount  = { path = "../sfs-mount", package = "zero-sfs-mount", default-features = false }
-sfs-saas   = { path = "../sfs-saas", package = "zero-sfs-saas", default-features = false }
-sfs-sync   = { path = "../sfs-sync", package = "zero-sfs-sync" }
+sfs-core   = { path = "../sfs-core", version = "1.0.0-rc.1", package = "zero-sfs-core" }
+sfs-mount  = { path = "../sfs-mount", version = "1.0.0-rc.1", package = "zero-sfs-mount", default-features = false }
+sfs-saas   = { path = "../sfs-saas", version = "1.0.0-rc.1", package = "zero-sfs-saas", default-features = false }
+sfs-sync   = { path = "../sfs-sync", version = "1.0.0-rc.1", package = "zero-sfs-sync" }
 serde_json = "1"
 hex        = "0.4"
 rand       = "0.8"
@@ -21,7 +21,7 @@ crc32fast  = { workspace = true }
 [dev-dependencies]
 tempfile = "3"
 # For the E2E sync + recovery tests: need the in-process server.
-sfs-saas   = { path = "../sfs-saas", package = "zero-sfs-saas", features = ["server", "test-hooks"] }
+sfs-saas   = { path = "../sfs-saas", version = "1.0.0-rc.1", package = "zero-sfs-saas", features = ["server", "test-hooks"] }
 rcgen      = "0.13"
 tokio      = { version = "1", features = ["rt-multi-thread", "macros"] }
 reqwest    = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls-manual-roots", "http2"] }

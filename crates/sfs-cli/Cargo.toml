@@ -8,8 +8,8 @@ repository.workspace = true
 description = "OS-integration binaries for sfs: mkfs.sfs / fsck.sfs / mount.sfs / blkid probe / sfsd"
 
 [dependencies]
-sfs-core   = { path = "../sfs-core", package = "zero-sfs-core" }
-sfs-sync   = { path = "../sfs-sync", package = "zero-sfs-sync" }
+sfs-core   = { path = "../sfs-core", version = "1.0.0-rc.1", package = "zero-sfs-core" }
+sfs-sync   = { path = "../sfs-sync", version = "1.0.0-rc.1", package = "zero-sfs-sync" }
 getrandom  = { workspace = true }
 crc32fast  = { workspace = true }
 hex        = "0.4"

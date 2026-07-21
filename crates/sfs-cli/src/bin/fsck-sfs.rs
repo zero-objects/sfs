@@ -1,3 +1,4 @@
+#![allow(clippy::doc_overindented_list_items, clippy::doc_lazy_continuation)]
 //! `fsck.sfs` — check / repair an sfs container with standard `fsck(8)` exit
 //! codes (12.2).  Installed as `/sbin/fsck.sfs`, so `fsck -t sfs <dev>` and
 //! `systemd-fsck@.service` drive it like any other fsck.

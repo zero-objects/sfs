@@ -354,6 +354,7 @@ pub fn decode_meta(buf: &[u8]) -> Result<(FsAttr, Option<String>)> {
 /// carry the section.  Every failure mode of [`decode_meta`] applies, plus a
 /// truncated / oversized xattr section fails closed (never panics, never
 /// over-allocates on an unvalidated length).
+#[allow(clippy::type_complexity)]
 pub fn decode_meta_xattrs(buf: &[u8]) -> Result<(FsAttr, Option<String>, BTreeMap<String, Vec<u8>>)> {
     // Minimum: FIXED_HDR (48) + CRC (4) = 52
     if buf.len() < FIXED_HDR + 4 {

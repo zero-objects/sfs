@@ -7,7 +7,7 @@ repository.workspace = true
 description = "sfs NoSQL surface (D-23 Annex A): KV / document store projected over the sfs engine"
 
 [dependencies]
-sfs-core = { path = "../sfs-core", package = "zero-sfs-core" }
+sfs-core = { path = "../sfs-core", version = "1.0.0-rc.1", package = "zero-sfs-core" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

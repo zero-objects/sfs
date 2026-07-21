@@ -38,17 +38,21 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
       - name: Resolve tag
         id: meta
         run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
-      - name: Build scrubbed release/ bundle
-        run: ./make-release.sh   # fails closed if any internal identifier leaks
+      # This repository IS the public, already-scrubbed mirror (populated by the
+      # internal sync-github.sh, which runs the machine/host + undercover
+      # guardrails before every push). The source bundle is therefore just the
+      # tracked tree at the tag — git archive excludes .git and every ignored
+      # build artifact by construction.
       - name: Tarball + checksum
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
           NAME="sfs-${TAG#v}-src"
-          mv release "$NAME"
-          tar czf "$NAME.tar.gz" "$NAME"
+          git archive --format=tar --prefix="$NAME/" HEAD | gzip > "$NAME.tar.gz"
           sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256"
       - uses: actions/upload-artifact@v4
         with:
@@ -66,6 +70,8 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
       - name: Resolve tag
         id: meta
         run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
@@ -101,6 +107,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
       - name: Build paper
         uses: xu-cheng/latex-action@v4
         with:
