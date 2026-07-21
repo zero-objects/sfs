@@ -21,6 +21,7 @@
 #include "sfs_format.h"
 #include "sfs_crypto.h"
 #include "sfs_header.h"
+#include "sfs_compat.h"	/* sfs_wb_file_t, kernel-version shims */
 #include "sfs_trie.h"
 #include "sfs_record.h"
 #include "sfs_sign.h"     /* WS10: record signatures (verify + sign) */
@@ -481,10 +482,10 @@ static inline bool sfs_cow_overlay_active(const struct sfs_inode_info *si)
  * inode on the dirty list.
  */
 struct writeback_control;
-int sfs_write_begin(struct file *file, struct address_space *mapping,
+int sfs_write_begin(sfs_wb_file_t wbf, struct address_space *mapping,
 		    loff_t pos, unsigned int len, struct folio **foliop,
 		    void **fsdata);
-int sfs_write_end(struct file *file, struct address_space *mapping,
+int sfs_write_end(sfs_wb_file_t wbf, struct address_space *mapping,
 		  loff_t pos, unsigned int len, unsigned int copied,
 		  struct folio *folio, void *fsdata);
 bool sfs_dirty_folio(struct address_space *mapping, struct folio *folio);

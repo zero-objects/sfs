@@ -1406,10 +1406,11 @@ static int sfs_redirty(struct dentry *dentry, struct inode *inode);
  * folio_wait_stable via mapping_set_stable_writes provide them.
  */
 
-int sfs_write_begin(struct file *file, struct address_space *mapping,
+int sfs_write_begin(sfs_wb_file_t wbf, struct address_space *mapping,
 		    loff_t pos, unsigned int len, struct folio **foliop,
 		    void **fsdata)
 {
+	struct file *file = sfs_wb_file(wbf);
 	struct inode *inode = mapping->host;
 	struct sfs_inode_info *si = SFS_I(inode);
 	u64 end = (u64)pos + len;
@@ -1474,11 +1475,12 @@ retry:
 	return 0;
 }
 
-int sfs_write_end(struct file *file, struct address_space *mapping,
+int sfs_write_end(sfs_wb_file_t wbf, struct address_space *mapping,
 		  loff_t pos, unsigned int len, unsigned int copied,
 		  struct folio *folio, void *fsdata)
 {
 	struct inode *inode = mapping->host;
+	(void)wbf;	/* file not needed on the write-end path */
 
 	if (unlikely(copied < len && !folio_test_uptodate(folio)))
 		copied = 0;   /* generic loop shortens the iov and retries */

@@ -12,6 +12,7 @@
 #define SFS_COMPAT_H
 
 #include <linux/version.h>
+#include <linux/fs.h>
 #include <linux/namei.h>
 #include <linux/dcache.h>
 #include <linux/stringhash.h>
@@ -37,5 +38,25 @@ sfs_lookup_one_positive(struct mnt_idmap *idmap, const char *name,
 	return lookup_one_positive_unlocked(idmap, name, base, len);
 #endif
 }
+
+/*
+ * address_space_operations .write_begin/.write_end changed their first argument
+ * from (struct file *) to (const struct kiocb *) in v6.17. sfs_wb_file_t is that
+ * first-arg type; sfs_wb_file() recovers the struct file * the callbacks use.
+ * This keeps the call sites (sfs_write.c defs, sfs_fs.h protos) free of #if.
+ */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+typedef const struct kiocb *sfs_wb_file_t;
+static inline struct file *sfs_wb_file(const struct kiocb *iocb)
+{
+	return iocb->ki_filp;
+}
+#else
+typedef struct file *sfs_wb_file_t;
+static inline struct file *sfs_wb_file(struct file *file)
+{
+	return file;
+}
+#endif
 
 #endif /* SFS_COMPAT_H */
