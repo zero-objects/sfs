@@ -52,7 +52,28 @@ impl Service {
             .enable_all()
             .build()
             .expect("tokio runtime");
-        let store = EngineStore::open(path, &AtRest::None).expect("open store");
+        // A real restart is a new process; the OS closes the previous boot's
+        // fds. In-process, the prior boot's container flock can take a moment to
+        // release after shutdown drains, so wait for it like a restart script
+        // would instead of racing (only the "locked" error is retried).
+        let store = {
+            let mut opened = None;
+            let mut last_err = None;
+            for _ in 0..100 {
+                match EngineStore::open(path, &AtRest::None) {
+                    Ok(s) => {
+                        opened = Some(s);
+                        break;
+                    }
+                    Err(e) if e.to_string().contains("locked by another process") => {
+                        last_err = Some(e);
+                        std::thread::sleep(std::time::Duration::from_millis(25));
+                    }
+                    Err(e) => panic!("open store: {e:?}"),
+                }
+            }
+            opened.unwrap_or_else(|| panic!("open store stayed locked: {last_err:?}"))
+        };
         let runtime = RuntimeOptions {
             token_persist: persist,
             ..RuntimeOptions::default()
