@@ -1235,52 +1235,52 @@ struct WalState {
 
 // ── PackAllocator (sub-block packing of small units, D-2/D-15, item E) ────────
 
-/// Session-RAM sub-allocator that packs small content fragments into shared
-/// `BASE_BLOCK`-aligned blocks so a tiny file no longer wastes a whole block.
-///
-/// # Model (byte-parity authority for the kernel port)
-///
-/// The packer owns at most one **open block** at a time.  A content fragment
-/// whose *sealed* length `L` satisfies `0 < L < BASE_BLOCK` is placed by:
-///
-/// 1. If there is no open block, or the open block cannot fit `L` more bytes
-///    (`used + L > BASE_BLOCK`), allocate a fresh whole `BASE_BLOCK` block from
-///    the LiveMid frontier (via [`Allocator::alloc_aligned`]) and open it with
-///    `used = 0`.
-/// 2. The sub-slot address is `base + used`; write exactly `L` ciphertext bytes
-///    there (no inter-slot padding); advance `used += L`.
-/// 3. The stored location is the raw sub-block `{addr = base + used_before,
-///    len = L}`.  There is **no on-disk format change** — `BlockLoc` already
-///    carries an arbitrary `addr:u64 + len:u32` with no alignment assumption,
-///    and reads issue `read_at(addr, len)` (buffered pread handles the arbitrary
-///    offset).  Decryption uses the fragment's own `BlockCtx {uuid, frag,
-///    version, key_epoch}` — an **address-independent** nonce/tweak, so packing
-///    two fragments into one block never reuses a `(key, nonce)` pair.
-///
-/// This deterministic bump/open-block rule lets the kernel mirror the exact
-/// byte layout.  The state is **session-only** (like the allocator freelists):
-/// a reopen starts with no open block; a partially filled block's remaining
-/// free tail is not reconstructed for reuse (correctness over compaction,
-/// matching the existing freelist policy).
-///
-/// # What is NOT packed
-///
-/// - Interior fragments (always `≥ 1` block at the `fragsize` floor exp 12) and
-///   `pad_blocks` (D-11) fragments — their sealed length is `≥ BASE_BLOCK`, so
-///   the trigger excludes them automatically.
-/// - Meta-stream blocks — their seal binds the block **address** into the AAD
-///   (`meta_stream_aad`), so they cannot be relocated/packed and stay aligned.
-/// - Catalog nodes, unit records, commit blobs, eviction-tail blocks — not
-///   content fragments.
-///
-/// # State location
-///
-/// The open-block cursor lives in [`Allocator`] (`open_pack` +
-/// [`Allocator::alloc_packed`]), NOT in the engine: every free path funnels
-/// through the allocator, and a freed extent overlapping the open block must
-/// close it — otherwise the surviving cursor bump-writes into whatever unit
-/// the block was re-lent to (seed-8 soak finding; kernel parity:
-/// `sfs_falloc.c` `fa_pack_close_if_freed`).
+// Session-RAM sub-allocator that packs small content fragments into shared
+// `BASE_BLOCK`-aligned blocks so a tiny file no longer wastes a whole block.
+//
+// # Model (byte-parity authority for the kernel port)
+//
+// The packer owns at most one **open block** at a time.  A content fragment
+// whose *sealed* length `L` satisfies `0 < L < BASE_BLOCK` is placed by:
+//
+// 1. If there is no open block, or the open block cannot fit `L` more bytes
+//    (`used + L > BASE_BLOCK`), allocate a fresh whole `BASE_BLOCK` block from
+//    the LiveMid frontier (via [`Allocator::alloc_aligned`]) and open it with
+//    `used = 0`.
+// 2. The sub-slot address is `base + used`; write exactly `L` ciphertext bytes
+//    there (no inter-slot padding); advance `used += L`.
+// 3. The stored location is the raw sub-block `{addr = base + used_before,
+//    len = L}`.  There is **no on-disk format change** — `BlockLoc` already
+//    carries an arbitrary `addr:u64 + len:u32` with no alignment assumption,
+//    and reads issue `read_at(addr, len)` (buffered pread handles the arbitrary
+//    offset).  Decryption uses the fragment's own `BlockCtx {uuid, frag,
+//    version, key_epoch}` — an **address-independent** nonce/tweak, so packing
+//    two fragments into one block never reuses a `(key, nonce)` pair.
+//
+// This deterministic bump/open-block rule lets the kernel mirror the exact
+// byte layout.  The state is **session-only** (like the allocator freelists):
+// a reopen starts with no open block; a partially filled block's remaining
+// free tail is not reconstructed for reuse (correctness over compaction,
+// matching the existing freelist policy).
+//
+// # What is NOT packed
+//
+// - Interior fragments (always `≥ 1` block at the `fragsize` floor exp 12) and
+//   `pad_blocks` (D-11) fragments — their sealed length is `≥ BASE_BLOCK`, so
+//   the trigger excludes them automatically.
+// - Meta-stream blocks — their seal binds the block **address** into the AAD
+//   (`meta_stream_aad`), so they cannot be relocated/packed and stay aligned.
+// - Catalog nodes, unit records, commit blobs, eviction-tail blocks — not
+//   content fragments.
+//
+// # State location
+//
+// The open-block cursor lives in [`Allocator`] (`open_pack` +
+// [`Allocator::alloc_packed`]), NOT in the engine: every free path funnels
+// through the allocator, and a freed extent overlapping the open block must
+// close it — otherwise the surviving cursor bump-writes into whatever unit
+// the block was re-lent to (seed-8 soak finding; kernel parity:
+// `sfs_falloc.c` `fa_pack_close_if_freed`).
 
 // ── Engine ───────────────────────────────────────────────────────────────────
 
