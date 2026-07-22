@@ -2207,8 +2207,38 @@ pub async fn serve(
     // ── Shared state ──────────────────────────────────────────────────────
     let state = Arc::new(AppState::new(store, 3600));
 
-    // ── Bind the TCP socket to the caller-supplied address ───────────────
-    let tcp_listener = std::net::TcpListener::bind(bind_addr)?;
+    // ── Bind UDP (QUIC) and TCP (h2) on the SAME port ────────────────────
+    // Alt-Svc advertises h3 on the h2 port, so both sockets must share the
+    // port number. The UDP socket is bound FIRST: with an ephemeral request
+    // the OS-chosen TCP port can lie in a UDP excluded-port range (Windows
+    // Hyper-V reservations → WSAEACCES 10013) and the h3 endpoint would
+    // silently never come up. Letting the OS pick a UDP-bindable port and
+    // then taking the same TCP port avoids that; a few retries cover a
+    // taken TCP side. The socket is handed to quinn (no rebind race).
+    let (udp_socket, tcp_listener) = {
+        let mut picked = None;
+        let mut last_err = std::io::Error::other("bind not attempted");
+        for _ in 0..8 {
+            let udp = std::net::UdpSocket::bind(bind_addr)?;
+            match std::net::TcpListener::bind(udp.local_addr()?) {
+                Ok(tcp) => {
+                    picked = Some((udp, tcp));
+                    break;
+                }
+                Err(e) => {
+                    last_err = e;
+                    // Fixed port: the pair either binds or the caller must know.
+                    if bind_addr.port() != 0 {
+                        break;
+                    }
+                }
+            }
+        }
+        match picked {
+            Some(p) => p,
+            None => return Err(last_err),
+        }
+    };
     tcp_listener.set_nonblocking(true)?;
     let addr = tcp_listener.local_addr()?;
     let port = addr.port();
@@ -2252,7 +2282,7 @@ pub async fn serve(
     let (h3_shutdown_tx, h3_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     let h3_state = state.clone();
     let h3_join = tokio::spawn(run_quic_server(
-        addr,
+        udp_socket,
         h3_tls,
         h3_state,
         h3_shutdown_rx,
@@ -2271,8 +2301,12 @@ pub async fn serve(
 }
 
 /// Run the QUIC/h3 accept loop until `shutdown_rx` fires.
+///
+/// Takes the pre-bound UDP socket from [`serve`] (same port as the h2
+/// listener) instead of binding here — the bind already succeeded, so a
+/// port-range conflict cannot silently swallow the h3 endpoint.
 async fn run_quic_server(
-    addr: SocketAddr,
+    udp_socket: std::net::UdpSocket,
     tls_config: Arc<rustls::ServerConfig>,
     state: Shared,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
@@ -2281,10 +2315,22 @@ async fn run_quic_server(
     let quinn_crypto = quinn::crypto::rustls::QuicServerConfig::try_from(tls_config)
         .expect("quinn rustls config");
     let server_config = quinn::ServerConfig::with_crypto(Arc::new(quinn_crypto));
-    let endpoint = match quinn::Endpoint::server(server_config, addr) {
+    let runtime = match quinn::default_runtime() {
+        Some(r) => r,
+        None => {
+            eprintln!("h3: no async runtime for QUIC endpoint");
+            return;
+        }
+    };
+    let endpoint = match quinn::Endpoint::new(
+        quinn::EndpointConfig::default(),
+        Some(server_config),
+        udp_socket,
+        runtime,
+    ) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("h3: failed to bind QUIC endpoint: {e}");
+            eprintln!("h3: failed to create QUIC endpoint: {e}");
             return;
         }
     };
