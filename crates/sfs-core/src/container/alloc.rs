@@ -254,6 +254,15 @@ pub struct Allocator {
     /// commit — the exact kernel `sfs_falloc` deferred-list discipline
     /// (`kernel/sfs_falloc.h`), applied to LiveMid data blocks.
     deferred_free: Vec<BlockLoc>,
+    /// Sub-block packing (D-2/D-15, item E): the currently open pack block as
+    /// `(base_addr, bytes_used)`, or `None`.  Session-only, like the
+    /// freelists.  Lives in the allocator (not the engine) so every free path
+    /// can close it: once a freed extent overlaps the open block, its bytes
+    /// can be re-lent to an aligned allocation, and a later bump-continuation
+    /// would write into the new owner's committed data (seed-8 soak finding —
+    /// defrag's gap scan freed an open pack block whose occupants were
+    /// superseded; the surviving cursor then corrupted a fresh fragment).
+    open_pack: Option<(u64, u64)>,
 }
 
 impl Allocator {
@@ -276,6 +285,7 @@ impl Allocator {
             free_tail: Freelist::default(),
             reclaim_floor: None,
             deferred_free: Vec::new(),
+            open_pack: None,
         }
     }
 
@@ -553,8 +563,38 @@ impl Allocator {
             // Misuse: addr was never allocated or was already freed.  Ignore.
             return false;
         };
+        self.pack_close_if_freed(loc.addr, size);
         self.freelist_for_mut(region).insert(loc.addr, size);
         true
+    }
+
+    // ── Sub-block packing (D-2/D-15, item E) ──────────────────────────────────
+
+    /// Bump-allocate `need` bytes (`0 < need < BASE_BLOCK`) inside the open
+    /// pack block, opening a fresh whole LiveMid block when the payload does
+    /// not fit.  Returns the sub-block address.
+    pub fn alloc_packed(&mut self, b: &mut Backend, need: u64) -> Result<u64> {
+        debug_assert!(need > 0 && need < BASE_BLOCK as u64);
+        let (base, used) = match self.open_pack {
+            Some((base, used)) if used + need <= BASE_BLOCK as u64 => (base, used),
+            _ => {
+                let blk = self.alloc_aligned(b, BASE_BLOCK, Region::LiveMid)?;
+                (blk.addr, 0)
+            }
+        };
+        self.open_pack = Some((base, used + need));
+        Ok(base + used)
+    }
+
+    /// Close the open pack block when a freed extent overlaps it — its bytes
+    /// can now be re-lent to an aligned allocation, and a later
+    /// bump-continuation would write into the new owner's committed data.
+    fn pack_close_if_freed(&mut self, addr: u64, len: u64) {
+        if let Some((base, _)) = self.open_pack {
+            if addr < base + BASE_BLOCK as u64 && addr + len > base {
+                self.open_pack = None;
+            }
+        }
     }
 
     // ── Reclaim scope (transaction-scoped CoW node reclamation, P8.6) ──────────
@@ -719,6 +759,7 @@ impl Allocator {
             len > 0 && len.is_multiple_of(BASE_BLOCK as u64),
             "len must be a positive block multiple"
         );
+        self.pack_close_if_freed(addr, len);
         self.freelist_for_mut(region).insert(addr, len);
     }
 
@@ -811,6 +852,7 @@ mod tests {
             free_tail: Freelist::default(),
             reclaim_floor: None,
             deferred_free: Vec::new(),
+            open_pack: None,
         }
     }
 
@@ -965,6 +1007,55 @@ mod tests {
     /// anchored at the immovable device end, so a forward alloc that would
     /// collide with it returns `StorageFull` and the shift-tail RELOCATION branch
     /// in `grow_for` is NEVER taken — partition-mode overwrites never pay the
+    /// A freed extent overlapping the open pack block must close it: the freed
+    /// bytes can be re-lent to an aligned allocation, and a surviving bump
+    /// cursor would write into the new owner's committed data (seed-8 soak).
+    #[test]
+    fn free_of_open_pack_block_closes_cursor() {
+        let mut b = crate::container::backend::Backend::create_in_memory(
+            64 * BASE_BLOCK as u64,
+        )
+        .expect("backend");
+        let mut alloc = Allocator::new(&b);
+
+        // Open a pack block and bump 1000 bytes into it.
+        let a1 = alloc.alloc_packed(&mut b, 1000).expect("pack 1");
+        let base = a1; // fresh block: first sub-slot is the base
+        assert_eq!(base % BASE_BLOCK as u64, 0);
+        assert_eq!(alloc.alloc_packed(&mut b, 500).expect("pack 2"), base + 1000);
+
+        // Free the block (defrag gap-scan / supersede path).
+        assert!(alloc.free(BlockLoc { addr: base, len: BASE_BLOCK }));
+
+        // The freed block goes to a new owner via the aligned path.
+        let owner = alloc
+            .alloc_aligned(&mut b, BASE_BLOCK, Region::LiveMid)
+            .expect("realloc");
+        assert_eq!(owner.addr, base, "freelist should re-lend the freed block");
+
+        // The next packed alloc must NOT continue at base+1500 inside the
+        // re-lent block — the cursor was closed, so it opens a fresh block.
+        let a3 = alloc.alloc_packed(&mut b, 700).expect("pack 3");
+        assert_eq!(a3 % BASE_BLOCK as u64, 0, "cursor must have been closed");
+        assert_ne!(a3, base, "must not reuse the re-lent block");
+    }
+
+    /// Same closure discipline for the defrag gap-scan insertion path.
+    #[test]
+    fn insert_free_extent_over_pack_block_closes_cursor() {
+        let mut b = crate::container::backend::Backend::create_in_memory(
+            64 * BASE_BLOCK as u64,
+        )
+        .expect("backend");
+        let mut alloc = Allocator::new(&b);
+
+        let a1 = alloc.alloc_packed(&mut b, 1000).expect("pack 1");
+        alloc.insert_free_extent(a1, BASE_BLOCK as u64, Region::LiveMid);
+
+        let a2 = alloc.alloc_packed(&mut b, 700).expect("pack 2");
+        assert_eq!(a2 % BASE_BLOCK as u64, 0, "cursor must have been closed");
+    }
+
     /// O(n²) relocation.  Proven by: pre-placed tail bytes are byte-identical
     /// after the collision, i.e. nothing was moved.
     #[test]

@@ -314,6 +314,12 @@ sfs_mut: $(MUT_CORE) sfs_mut.c sfs_mut.h
 sfs_fuzz: $(MUT_CORE) sfs_mut.c sfs_mut.h sfs_fuzz.c
 	$(CC) $(CFLAGS) -DSFS_MUT_NO_MAIN -o $@ $(MUT_CORE) sfs_mut.c sfs_fuzz.c $(LDFLAGS)
 
+# Cross-unit extent overlap scanner: catches structural double-ownership
+# (allocator handed one range to two units) even when the content re-read
+# happens to match. Found the seed-8 pack-cursor corruption.
+sfs_overlap: $(MUT_CORE) sfs_overlap.c
+	$(CC) $(CFLAGS) -o $@ $(MUT_CORE) sfs_overlap.c $(LDFLAGS)
+
 .PHONY: verify roundtrip fuzz fuzz-soak golden clean
 golden:
 	# build ALL tools bins (not a hand-maintained subset): the verify harness
@@ -410,7 +416,7 @@ roundtrip: sfs_mut sfs_verify golden
 # ciphers × ~800 ops). The longer soak is `make fuzz-soak` (documented, manual).
 FUZZ_OPS ?= 800
 FUZZ_SEEDS ?= 1 2
-fuzz: sfs_fuzz sfs_verify golden
+fuzz: sfs_fuzz sfs_verify sfs_overlap golden
 	@set -e; for c in none xts gcm; do \
 	  for s in $(FUZZ_SEEDS); do \
 	    echo "== fuzz cipher=$$c seed=$$s ops=$(FUZZ_OPS) =="; \
@@ -420,12 +426,13 @@ fuzz: sfs_fuzz sfs_verify golden
 	    $(REPO)/target/release/sfs-fsck $(GOLDEN)/fuzz-$$c-$$s.sfs >/dev/null; \
 	    ./sfs_verify --image $(GOLDEN)/fuzz-$$c-$$s.sfs \
 	      $(GOLDEN)/fuzz-$$c-$$s.manifest fuzz-$$c-$$s; \
+	    ./sfs_overlap $(GOLDEN)/fuzz-$$c-$$s.sfs; \
 	  done; \
 	done; \
 	echo "== fuzz: ALL PASS =="
 
 # Longer soak (manual / nightly): larger op counts, more seeds.
-fuzz-soak: sfs_fuzz sfs_verify golden
+fuzz-soak: sfs_fuzz sfs_verify sfs_overlap golden
 	@set -e; for c in none xts gcm; do \
 	  for s in 1 2 3 4 5 6 7 8; do \
 	    echo "== soak cipher=$$c seed=$$s =="; \
@@ -435,6 +442,7 @@ fuzz-soak: sfs_fuzz sfs_verify golden
 	    $(REPO)/target/release/sfs-fsck $(GOLDEN)/soak-$$c-$$s.sfs >/dev/null; \
 	    ./sfs_verify --image $(GOLDEN)/soak-$$c-$$s.sfs \
 	      $(GOLDEN)/soak-$$c-$$s.manifest soak-$$c-$$s; \
+	    ./sfs_overlap $(GOLDEN)/soak-$$c-$$s.sfs; \
 	  done; \
 	done; \
 	echo "== fuzz-soak: ALL PASS =="
@@ -442,5 +450,6 @@ fuzz-soak: sfs_fuzz sfs_verify golden
 clean:
 	rm -f sfs_verify sfs_mkfs sfs_evil sfs_probe sfs_committest sfs_alloctest \
 	  sfs_bigrec sfs_cowtest sfs_triecow sfs_waltest sfs_evicttest \
-	  sfs_defragtest sfs_trimtest sfs_edtest sfs_xattrtest sfsctl sfs_mut sfs_fuzz
+	  sfs_defragtest sfs_trimtest sfs_edtest sfs_xattrtest sfsctl sfs_mut sfs_fuzz \
+	  sfs_overlap
 	rm -rf *.dSYM

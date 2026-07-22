@@ -205,6 +205,23 @@ static void fa_undiscard(struct sfs_falloc *a, u64 addr, u64 need)
 	fl_remove_range(&a->disc_ok, addr, need);
 }
 
+/*
+ * Close the open pack block when a freed extent overlaps it. Once its bytes
+ * are back on a freelist they can be handed to an aligned allocation, and a
+ * later bump-continuation would write into the new owner's committed data
+ * (found by the seed-8 soak: defrag's gap scan legitimately freed an open
+ * pack block whose occupants were superseded — the surviving cursor then
+ * packed a fragment into another unit's freshly committed content).
+ */
+static void fa_pack_close_if_freed(struct sfs_falloc *a, u64 addr, u64 len)
+{
+	if (a->pack_base &&
+	    addr < a->pack_base + SFS_BASE_BLOCK && addr + len > a->pack_base) {
+		a->pack_base = 0;
+		a->pack_used = 0;
+	}
+}
+
 u64 sfs_falloc_alloc(struct sfs_falloc *a, u64 len, int region)
 {
 	u64 need = fa_round_up(len);
@@ -273,6 +290,7 @@ u64 sfs_falloc_peek(const struct sfs_falloc *a, u64 len, int region)
 
 int sfs_falloc_free(struct sfs_falloc *a, u64 addr, u64 len, int region)
 {
+	fa_pack_close_if_freed(a, addr, fa_round_up(len));
 	return fl_insert(&a->free_r[region], addr, fa_round_up(len));
 }
 
@@ -289,6 +307,7 @@ void sfs_falloc_retire_node(struct sfs_falloc *a, u64 addr)
 	if (addr >= a->floor) {
 		/* Allocated within this commit — immediate reuse (Rust
 		 * free_reclaimable). Failure = safe leak. */
+		fa_pack_close_if_freed(a, addr, SFS_TRIE_PAIR_SIZE);
 		fl_insert(&a->free_r[SFS_FREG_HEAD], addr, SFS_TRIE_PAIR_SIZE);
 	} else {
 		/* Committed-root node: MUST stay intact until the header flip
@@ -319,6 +338,8 @@ void sfs_falloc_publish(struct sfs_falloc *a)
 	a->disc_pend.n = 0;
 
 	for (i = 0; i < a->deferred.n; i++) {
+		fa_pack_close_if_freed(a, a->deferred.v[i].addr,
+				       a->deferred.v[i].len);
 		fl_insert(&a->free_r[SFS_FREG_HEAD], a->deferred.v[i].addr,
 			  a->deferred.v[i].len);   /* failure = safe leak */
 		/* WS8 retirement becomes a discard candidate too: it was
@@ -334,6 +355,8 @@ void sfs_falloc_publish(struct sfs_falloc *a)
 	 * release them to the LIVE freelist and age them for discard exactly as
 	 * the node pairs above. */
 	for (i = 0; i < a->deferred_live.n; i++) {
+		fa_pack_close_if_freed(a, a->deferred_live.v[i].addr,
+				       a->deferred_live.v[i].len);
 		fl_insert(&a->free_r[SFS_FREG_LIVE], a->deferred_live.v[i].addr,
 			  a->deferred_live.v[i].len);   /* failure = safe leak */
 		fl_insert(&a->disc_pend, a->deferred_live.v[i].addr,

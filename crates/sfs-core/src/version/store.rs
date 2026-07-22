@@ -1272,12 +1272,15 @@ struct WalState {
 ///   (`meta_stream_aad`), so they cannot be relocated/packed and stay aligned.
 /// - Catalog nodes, unit records, commit blobs, eviction-tail blocks — not
 ///   content fragments.
-#[derive(Debug, Default)]
-struct PackAllocator {
-    /// The currently open pack block as `(base_addr, bytes_used)`, or `None`
-    /// when no block is open.  `base_addr` is always `BASE_BLOCK`-aligned.
-    open: Option<(u64, u64)>,
-}
+///
+/// # State location
+///
+/// The open-block cursor lives in [`Allocator`] (`open_pack` +
+/// [`Allocator::alloc_packed`]), NOT in the engine: every free path funnels
+/// through the allocator, and a freed extent overlapping the open block must
+/// close it — otherwise the surviving cursor bump-writes into whatever unit
+/// the block was re-lent to (seed-8 soak finding; kernel parity:
+/// `sfs_falloc.c` `fa_pack_close_if_freed`).
 
 // ── Engine ───────────────────────────────────────────────────────────────────
 
@@ -1357,14 +1360,6 @@ pub struct Engine {
     /// pre-overwrite version.  This proves the coalesced barrier preserves the
     /// per-fragment crash-safety guarantee.  Off by default.
     crash_after_n_inplace: Option<usize>,
-    /// Session-RAM sub-block packing allocator over the LiveMid region
-    /// (D-2/D-15, item E).  Owns whole `BASE_BLOCK`-aligned blocks and
-    /// bump-allocates sub-slots inside them for content fragments whose sealed
-    /// length is `< BASE_BLOCK`.  See [`PackAllocator`] and
-    /// [`Self::place_content_fragment`].  Session-only (like the freelists): a
-    /// reopen starts with no open block — cross-session sub-slot reuse is
-    /// intentionally not reconstructed (correctness over compaction).
-    pack: PackAllocator,
     /// Bounded in-memory path→uuid resolve cache (Task Phase-4 / Task 7).
     ///
     /// Caches the result of `KeyCatalog::get_path` (the trie walk) so that
@@ -1624,7 +1619,6 @@ impl Engine {
             inplace_undo_journaled: std::collections::HashSet::new(),
             crash_after_tail_copy: false,
             crash_after_n_inplace: None,
-            pack: PackAllocator::default(),
             resolve_cache: Mutex::new(HashMap::new()),
             record_cache: Mutex::new(RecordCache::new(1024)),
             wal: None,
@@ -1810,7 +1804,6 @@ impl Engine {
             inplace_undo_journaled: std::collections::HashSet::new(),
             crash_after_tail_copy: false,
             crash_after_n_inplace: None,
-            pack: PackAllocator::default(),
             resolve_cache: Mutex::new(HashMap::new()),
             record_cache: Mutex::new(RecordCache::new(1024)),
             wal: None,
@@ -2894,7 +2887,6 @@ impl Engine {
             inplace_undo_journaled: std::collections::HashSet::new(),
             crash_after_tail_copy: false,
             crash_after_n_inplace: None,
-            pack: PackAllocator::default(),
             resolve_cache: Mutex::new(HashMap::new()),
             record_cache: Mutex::new(RecordCache::new(1024)),
             wal: None,
@@ -9254,23 +9246,12 @@ impl Engine {
     fn place_content_fragment(&mut self, cipher: &[u8]) -> Result<BlockLoc> {
         let len = cipher.len();
         if len > 0 && (len as u64) < BASE_BLOCK as u64 {
-            // Sub-block packing: bump-allocate inside the open block, opening a
-            // fresh whole LiveMid block when the payload will not fit.
-            let need = len as u64;
-            let (base, used) = match self.pack.open {
-                Some((base, used)) if used + need <= BASE_BLOCK as u64 => (base, used),
-                _ => {
-                    let blk = self.alloc.alloc_aligned(
-                        &mut self.backend,
-                        BASE_BLOCK,
-                        Region::LiveMid,
-                    )?;
-                    (blk.addr, 0)
-                }
-            };
-            let addr = base + used;
+            // Sub-block packing: bump-allocate inside the allocator's open pack
+            // block, opening a fresh whole LiveMid block when the payload will
+            // not fit.  The open-block state lives in the allocator so every
+            // free path closes it on overlap (seed-8 soak finding).
+            let addr = self.alloc.alloc_packed(&mut self.backend, len as u64)?;
             self.backend.write_at(addr, cipher)?;
-            self.pack.open = Some((base, used + need));
             Ok(BlockLoc { addr, len: len as u32 })
         } else {
             // Whole-block placement (unchanged behaviour): interior fragments,
