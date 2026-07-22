@@ -390,6 +390,7 @@ static int open_window(struct sfs_mut *m, struct sfs_mut_file *f)
 	f->exp = (rec.content.present && rec.content.nfrags)
 		 ? rec.content.fragsize_exp
 		 : sfs_derive_fragsize_exp(f->old_size);
+	f->exp_frozen = rec.content.present && rec.content.nfrags;
 	f->have_exp = 1;
 	sfs_cow_buf_free(plain);
 	sfs_cow_buf_free(raw);
@@ -594,17 +595,28 @@ out:
 static int commit_content(struct sfs_mut *m, struct sfs_mut_file *f, u64 *rec_out)
 {
 	struct sfs_cow_io io = mut_cow_io(m);
-	u64 frag = 1ULL << f->exp;
-	u64 final = f->len, min = f->min_size;
-	u32 new_n = final ? (u32)((final + frag - 1) >> f->exp) : 0;
-	u32 i, nd = 0;
+	u64 frag, final = f->len, min = f->min_size;
+	u32 new_n, i, nd = 0;
 	struct sfs_cow_frag *dirty = NULL;
 	u8 **bufs = NULL;
 	u8 meta_sm[SFS_META_SM_MAX];
 	u32 meta_len = 0;
 	int have_boundary = 0, have_eof = 0;
+	int all_dirty = !f->exp_frozen;
 	u64 boundary_frag = 0, eof_frag = 0;
 	int r;
+
+	/* Committed stream without fragments (empty unit): nothing froze the
+	 * exponent, so the engine derives it from the fold's FINAL size
+	 * (stage_write:6979 / extend:3337) — the window's provisional exp
+	 * (derived from old_size 0) can sit in a lower band. Mirror the
+	 * engine and send the whole content as dirty: there is no committed
+	 * fragment to keep, and the dfrag bits were marked at the provisional
+	 * exponent. */
+	if (all_dirty)
+		f->exp = sfs_derive_fragsize_exp(final);
+	frag = 1ULL << f->exp;
+	new_n = final ? (u32)((final + frag - 1) >> f->exp) : 0;
 
 	/* Mid-fragment shrink-then-regrow within the window: reseal the cut
 	 * fragment with zeros beyond the cut (documented deviation #3). */
@@ -632,7 +644,7 @@ static int commit_content(struct sfs_mut *m, struct sfs_mut_file *f, u64 *rec_ou
 		u8 *pb;
 		u64 copy;
 
-		if (!(have_boundary && i == boundary_frag) &&
+		if (!all_dirty && !(have_boundary && i == boundary_frag) &&
 		    !(have_eof && i == eof_frag) && !dfrag_test(f, i))
 			continue;
 		pb = calloc(1, frag);

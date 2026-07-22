@@ -41,10 +41,15 @@ sha() { "$BINS/sfs-cat" "$1" "$2" | shasum -a 256 | cut -d' ' -f1; }
 # A "flat" batch (many ops, ONE publish) and a "deep" batch exercising nested
 # paths + directory-prefix rename (the deep-readdir path the count-only smoke
 # could not see).
+# rt_regrow / rt_a_moved regrow a COMMITTED-EMPTY unit across a fragsize
+# band: with nfrags==0 nothing froze the exponent, the engine derives it
+# from the fold's final size — the harness must mirror that (found by the
+# xts seed=6 soak).
 scen_flat="$WORK/flat.script"
 cat > "$scen_flat" <<'EOF'
 create /rt_a 5000 11
 create /rt_b 200000 12
+create /rt_regrow 0 13
 mkdir /rt_dir
 symlink /rt_link /hello.txt
 write /rt_a 100 300 21
@@ -55,7 +60,11 @@ overwrite /rt_a 0 40 31
 truncate /rt_b 3000
 extend /rt_b 90000
 rename /rt_a /rt_a_moved
+truncate /rt_a_moved 0
 unlink /rt_dir
+publish
+write /rt_regrow 6169 13560 23
+write /rt_a_moved 5000 30000 24
 publish
 defrag
 trim

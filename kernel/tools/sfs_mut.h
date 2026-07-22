@@ -76,6 +76,7 @@ struct sfs_mut_file {
 	int dirty_meta;
 	u8 exp;                     /* frozen content fragsize_exp */
 	int have_exp;
+	int exp_frozen;             /* committed stream has fragments (exp fixed) */
 	u64 min_size;               /* low-water logical size in the window */
 	u64 old_size;               /* logical size at window start */
 	u8 *dfrag;                  /* dirty-fragment bitset */
