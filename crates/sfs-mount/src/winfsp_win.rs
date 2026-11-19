@@ -51,6 +51,9 @@ const STATUS_UNEXPECTED_IO_ERROR: i32 = 0xC000_00E9u32 as i32;
 const STATUS_OBJECT_NAME_COLLISION: i32 = 0xC000_0035u32 as i32;
 const STATUS_FILE_IS_A_DIRECTORY: i32 = 0xC000_00BAu32 as i32;
 const STATUS_NOT_A_DIRECTORY: i32 = 0xC000_0103u32 as i32;
+const STATUS_NONEXISTENT_EA_ENTRY: i32 = 0xC000_0051u32 as i32;
+const STATUS_NOT_SUPPORTED: i32 = 0xC000_00BBu32 as i32;
+const STATUS_EA_TOO_LARGE: i32 = 0xC000_0050u32 as i32;
 
 /// Map an [`FsError`] to a WinFsp [`FspError`] (NTSTATUS).
 fn to_fsp(e: FsError) -> FspError {
@@ -60,6 +63,9 @@ fn to_fsp(e: FsError) -> FspError {
         FsError::Exists => STATUS_OBJECT_NAME_COLLISION,
         FsError::IsDir => STATUS_FILE_IS_A_DIRECTORY,
         FsError::NotDir => STATUS_NOT_A_DIRECTORY,
+        FsError::NoXattr => STATUS_NONEXISTENT_EA_ENTRY,
+        FsError::Unsupported => STATUS_NOT_SUPPORTED,
+        FsError::TooBig => STATUS_EA_TOO_LARGE,
         FsError::Io(_) => STATUS_UNEXPECTED_IO_ERROR,
     })
 }
