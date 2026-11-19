@@ -783,8 +783,10 @@ fn read_unit_record(
     if cipher == CIPHER_AES256_GCM {
         // v3 GCM layout: reclen:u32 | nonce:12 | ct||tag (reclen bytes) | pad
         // reclen = ct+tag length (does NOT include the nonce).
-        let footprint = round_up_block((4 + 12 + reclen) as u64);
-        if addr + footprint > b.len() {
+        // Bound by the bytes actually read (the block padding behind a record
+        // written by the mutable write path is never read).  Sealed archives
+        // (crate::archive) store records back to back without padding.
+        if addr.checked_add((4 + 12 + reclen) as u64).is_none_or(|end| end > b.len()) {
             return Err(Error::Integrity(
                 "unit record (GCM) length exceeds container".into(),
             ));
@@ -1434,6 +1436,15 @@ pub struct Engine {
     /// sealed Writer-Set blob has been loaded and owner-signature-verified.
     /// `None` for `Unsigned`/`Signed` containers.
     writer_set: Option<crate::version::writerset::WriterSet>,
+    /// `true` when the engine must not change its container: opened with
+    /// [`Self::open_read_only`] / [`Self::open_read_only_section`], or a sealed
+    /// archive (whatever the backend).  The backend refuses every write in
+    /// that case as well; this flag makes [`Self::publish`] refuse up front.
+    read_only: bool,
+    /// The path index of a **sealed archive** ([`crate::archive`]), which
+    /// replaces both catalog tries; `None` for every other container.  When
+    /// present, all catalog lookups go through it (see `cat_*`).
+    sealed: Option<crate::archive::SealedIndex>,
 }
 
 impl Engine {
@@ -1629,6 +1640,8 @@ impl Engine {
             signing_key: None,
             ranked_caps_override: None,
             writer_set: None,
+            read_only: false,
+            sealed: None,
         })
     }
 
@@ -1814,6 +1827,8 @@ impl Engine {
             signing_key: None,
             ranked_caps_override: None,
             writer_set: None,
+            read_only: false,
+            sealed: None,
         })
     }
 
@@ -2723,8 +2738,12 @@ impl Engine {
         // Decrypt the record bytes without the signature-verification step so we
         // can call verify_record_signature separately and capture the return value.
         let rec = if self.header.cipher == CIPHER_AES256_GCM {
-            let footprint = round_up_block((4 + 12 + reclen) as u64);
-            if head_addr + footprint > self.backend.len() {
+            // Exact bound, as in `read_unit_record` (sealed archives pack
+            // records without block padding).
+            if head_addr
+                .checked_add((4 + 12 + reclen) as u64)
+                .is_none_or(|end| end > self.backend.len())
+            {
                 return Err(Error::Integrity(
                     "record_signer: unit record (GCM) length exceeds container".into(),
                 ));
@@ -2854,7 +2873,7 @@ impl Engine {
     /// load + verify the header, open the catalogs, rebuild the allocator, and
     /// replay any WAL.  Shared by [`open_with_key`](Engine::open_with_key) and
     /// [`open_in_memory_with_key`](Engine::open_in_memory_with_key).
-    fn finish_open(backend: Backend, root_key: [u8; 32]) -> Result<Self> {
+    fn finish_open(mut backend: Backend, root_key: [u8; 32]) -> Result<Self> {
         let header = ContainerHeader::load(&backend, Some(&root_key))?;
         // v10-only reader: `ContainerHeader::load` already rejects any
         // `format_version != 10` (Security-Fixes #3/#4/#5), so no legacy
@@ -2869,6 +2888,18 @@ impl Engine {
                 header.format_version, header.cipher
             )));
         }
+        // Sealed archive (crate::archive): the catalog root names a sealed
+        // index instead of a trie.  Such a container has no free space and no
+        // tries to rebuild an allocator from; it is read-only by construction,
+        // also when opened from bytes in RAM.
+        let sealed = if crate::archive::is_sealed_index(&backend, header.roots.key_root)? {
+            let index = crate::archive::SealedIndex::load(&backend, &header, &root_key)?;
+            backend.set_read_only();
+            Some(index)
+        } else {
+            None
+        };
+        let read_only = backend.is_read_only();
         let key_catalog = KeyCatalog::open(header.roots.key_root, header.cipher, &root_key);
         let id_catalog = IdCatalog::open(header.roots.id_root, header.cipher, &root_key);
         let alloc = Allocator::new(&backend);
@@ -2897,12 +2928,117 @@ impl Engine {
             signing_key: None,
             ranked_caps_override: None,
             writer_set: None,
+            read_only,
+            sealed,
         };
-        engine.rebuild_allocator()?;
+        if engine.sealed.is_some() {
+            return Ok(engine);
+        }
+        if let Err(e) = engine.rebuild_allocator() {
+            // The only write on the open path is the D-17 crash-recovery undo of
+            // an interrupted in-place overwrite.  A read-only open cannot apply
+            // it; say so instead of a bare permission error.
+            if read_only {
+                if let Error::Io(io) = &e {
+                    if io.kind() == std::io::ErrorKind::PermissionDenied {
+                        return Err(Error::Integrity(
+                            "container needs crash recovery (interrupted in-place write); \
+                             open it writable once before opening it read-only"
+                                .into(),
+                        ));
+                    }
+                }
+            }
+            return Err(e);
+        }
         if engine.header.wal_region_offset != 0 {
             engine.replay_wal()?;
         }
         Ok(engine)
+    }
+
+    /// Open an existing container at `path` **read-only**, keyed under
+    /// `root_key`.
+    ///
+    /// The file is opened without write access, so this works for containers
+    /// in read-only locations (an iOS app bundle, a read-only mount, a file
+    /// with mode `0444`).  Content is read on demand with positioned reads;
+    /// the container is never loaded into memory as a whole.  Every write
+    /// operation on the returned engine fails and leaves the file untouched.
+    ///
+    /// Works for every container: a sealed archive ([`crate::archive`]) and a
+    /// container written through the normal write path.  For the latter the
+    /// open path is the same as [`open_with_key`](Engine::open_with_key)
+    /// (header, allocator rebuild, WAL replay into RAM); a container that
+    /// still needs crash recovery (an interrupted in-place write) is refused
+    /// with `Error::Integrity` — open it writable once first.
+    pub fn open_read_only(path: &Path, root_key: [u8; 32]) -> Result<Self> {
+        let backend = Backend::open_read_only(path)?;
+        Self::finish_open(backend, root_key)
+    }
+
+    /// Open the container stored in the byte range `[offset, offset + len)`
+    /// of `file`, **read-only**, keyed under `root_key`.
+    ///
+    /// For a container inside another file — on Android an asset stored
+    /// uncompressed in the APK (`AAsset_openFileDescriptor64` yields the
+    /// descriptor, `offset` and `len`), or a container appended to another
+    /// file.  `file` needs only read access; no lock is taken.  Reads are
+    /// positioned and on demand, as with [`open_read_only`](Engine::open_read_only).
+    pub fn open_read_only_section(
+        file: std::fs::File,
+        offset: u64,
+        len: u64,
+        root_key: [u8; 32],
+    ) -> Result<Self> {
+        let backend = Backend::open_read_only_section(file, offset, len)?;
+        Self::finish_open(backend, root_key)
+    }
+
+    /// `true` if this engine refuses every write (read-only open or sealed
+    /// archive).
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// `true` if the container is a sealed archive ([`crate::archive`]).
+    pub fn is_sealed_archive(&self) -> bool {
+        self.sealed.is_some()
+    }
+
+    /// Number of files in a sealed archive (`None` for other containers).
+    pub fn sealed_file_count(&self) -> Option<usize> {
+        self.sealed.as_ref().map(|s| s.len())
+    }
+
+    // ── Catalog lookups: sealed index or tries ───────────────────────────────
+
+    fn cat_get_path(&self, path: &[u8]) -> Result<Option<Uuid>> {
+        match &self.sealed {
+            Some(index) => Ok(index.get_path(path)),
+            None => self.key_catalog.get_path(&self.backend, path),
+        }
+    }
+
+    fn cat_scan_paths(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Uuid)>> {
+        match &self.sealed {
+            Some(index) => Ok(index.scan_paths(prefix)),
+            None => self.key_catalog.scan_paths(&self.backend, prefix),
+        }
+    }
+
+    fn cat_get_uuid(&self, uuid: &Uuid) -> Result<Option<u64>> {
+        match &self.sealed {
+            Some(index) => Ok(index.get_uuid(uuid)),
+            None => self.id_catalog.get_uuid(&self.backend, uuid),
+        }
+    }
+
+    fn cat_scan_all(&self) -> Result<Vec<(Uuid, u64)>> {
+        match &self.sealed {
+            Some(index) => Ok(index.scan_all()),
+            None => self.id_catalog.scan_all(&self.backend),
+        }
     }
 
     /// Set the local host alias for this replica.
@@ -3197,9 +3333,7 @@ impl Engine {
         db: Option<crate::unit::DbHead>,
         meta: Option<&[u8]>,
     ) -> Result<Uuid> {
-        if self
-            .key_catalog
-            .get_path(&self.backend, path.as_bytes())?
+        if self.cat_get_path(path.as_bytes())?
             .is_some()
         {
             return Err(Error::Integrity(format!("unit already exists: {path}")));
@@ -3261,9 +3395,7 @@ impl Engine {
     /// `/a/b` *and* `/a/b/c`.  An empty `prefix` (or `"/"`) lists the whole
     /// keyspace.
     pub fn list(&self, prefix: &str) -> Result<Vec<String>> {
-        let pairs = self
-            .key_catalog
-            .scan_paths(&self.backend, prefix.as_bytes())?;
+        let pairs = self.cat_scan_paths(prefix.as_bytes())?;
         pairs
             .into_iter()
             .map(|(k, _uuid)| {
@@ -3310,9 +3442,7 @@ impl Engine {
     /// Propagates I/O or integrity errors from the catalog or unit-record reads.
     pub fn list_dir(&self, prefix: &str) -> Result<Vec<DirEntry>> {
         // Scan all descendant paths under the prefix.
-        let pairs = self
-            .key_catalog
-            .scan_paths(&self.backend, prefix.as_bytes())?;
+        let pairs = self.cat_scan_paths(prefix.as_bytes())?;
 
         // BTreeMap keyed by segment name; value = (is_dir, Option<Uuid>).
         // `is_dir` starts false and is upgraded to true when we discover
@@ -3373,7 +3503,7 @@ impl Engine {
     /// read (e.g. because it has been unlinked or is a pure intermediate
     /// directory with no registered unit), returns `false`.
     fn is_meta_only_unit(&self, uuid: &Uuid) -> Result<bool> {
-        let Some(head_addr) = self.id_catalog.get_uuid(&self.backend, uuid)? else {
+        let Some(head_addr) = self.cat_get_uuid(uuid)? else {
             return Ok(false);
         };
         let rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
@@ -3391,13 +3521,9 @@ impl Engine {
     /// one flush + header commit) — until the header commit publishes the new
     /// `key_root`, the OLD root still resolves `old`.
     pub fn rename(&mut self, old: &str, new: &str) -> Result<()> {
-        let uuid = self
-            .key_catalog
-            .get_path(&self.backend, old.as_bytes())?
+        let uuid = self.cat_get_path(old.as_bytes())?
             .ok_or_else(|| Error::NotFound(format!("rename source missing: {old}")))?;
-        if self
-            .key_catalog
-            .get_path(&self.backend, new.as_bytes())?
+        if self.cat_get_path(new.as_bytes())?
             .is_some()
         {
             return Err(Error::Integrity(format!("rename target exists: {new}")));
@@ -3435,13 +3561,9 @@ impl Engine {
     /// - `NotFound` — `existing_path` is not registered.
     /// - `Integrity` — `new_path` already exists.
     pub fn link(&mut self, existing_path: &str, new_path: &str) -> Result<()> {
-        let uuid = self
-            .key_catalog
-            .get_path(&self.backend, existing_path.as_bytes())?
+        let uuid = self.cat_get_path(existing_path.as_bytes())?
             .ok_or_else(|| Error::NotFound(format!("link source missing: {existing_path}")))?;
-        if self
-            .key_catalog
-            .get_path(&self.backend, new_path.as_bytes())?
+        if self.cat_get_path(new_path.as_bytes())?
             .is_some()
         {
             return Err(Error::Integrity(format!("link target exists: {new_path}")));
@@ -3494,7 +3616,7 @@ impl Engine {
 
         // Collect the source set: exact key or `old/` descendants.
         let mut moves: Vec<(String, Uuid)> = Vec::new();
-        for (k, uuid) in self.key_catalog.scan_paths(&self.backend, old.as_bytes())? {
+        for (k, uuid) in self.cat_scan_paths(old.as_bytes())? {
             let is_exact = k.len() == old.len();
             let is_child = k.len() > old.len() && k[old.len()] == b'/';
             if !(is_exact || is_child) {
@@ -3511,7 +3633,7 @@ impl Engine {
         }
 
         // Target namespace must be empty (exact or descendants).
-        for (k, _) in self.key_catalog.scan_paths(&self.backend, new.as_bytes())? {
+        for (k, _) in self.cat_scan_paths(new.as_bytes())? {
             let is_exact = k.len() == new.len();
             let is_child = k.len() > new.len() && k[new.len()] == b'/';
             if is_exact || is_child {
@@ -3576,9 +3698,7 @@ impl Engine {
     /// Used by `setattr(size=N)` in `sfs-mount` when N < current_size.
     pub fn truncate(&mut self, path: &str, new_size: u64) -> Result<()> {
         let uuid = self.uuid_for_path(path)?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound(format!("truncate: no record for path: {path}")))?;
         let old_rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
 
@@ -3747,9 +3867,7 @@ impl Engine {
     /// Used by `setattr(size=N)` in `sfs-mount` when `N > current_size`.
     pub fn extend(&mut self, path: &str, new_size: u64) -> Result<()> {
         let uuid = self.uuid_for_path(path)?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound(format!("extend: no record for path: {path}")))?;
         let old_rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
 
@@ -3965,9 +4083,7 @@ impl Engine {
 
     pub fn write_meta(&mut self, path: &str, meta_bytes: &[u8]) -> Result<()> {
         let uuid = self.uuid_for_path(path)?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound(format!("write_meta: no record for path: {path}")))?;
         let old_rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
 
@@ -4035,9 +4151,7 @@ impl Engine {
     /// in sealed containers).
     pub fn read_meta(&self, path: &str) -> Result<Option<Vec<u8>>> {
         let uuid = self.uuid_for_path(path)?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound(format!("read_meta: no record for path: {path}")))?;
         let rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
         let Some(sm) = &rec.streams[StreamKind::Meta as usize] else {
@@ -4108,9 +4222,7 @@ impl Engine {
     /// monotonically and that cross-host meta edits are concurrent.
     pub fn meta_stream_vv(&self, path: &str) -> Result<Option<VersionVector>> {
         let uuid = self.uuid_for_path(path)?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound(format!("meta_stream_vv: no record for path: {path}")))?;
         let rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
         Ok(rec.streams[StreamKind::Meta as usize].as_ref().map(|sm| sm.vv.clone()))
@@ -4436,9 +4548,7 @@ impl Engine {
         // file read in many small chunks).  Only a cache MISS pays the
         // O(fragments) decode.  See [`RecordCache`] for the correctness argument.
         let uuid = self.uuid_for_path(path)?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound(format!("no record for path: {path}")))?;
         // Take the cached entry (if any) without holding the RefCell borrow into
         // the miss branch (which re-borrows to insert) — avoids a double-borrow.
@@ -4732,8 +4842,7 @@ impl Engine {
     /// authoritative IdCatalog mapping kept current by `create_unit` / `write`).
     pub fn head_record_addr(&self, path: &str) -> Result<BlockAddr> {
         let uuid = self.uuid_for_path(path)?;
-        self.id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound(format!("no record for path: {path}")))
     }
 
@@ -4976,9 +5085,7 @@ impl Engine {
         }
 
         // ── Slow path: trie walk, then populate cache ────────────────────────
-        let uuid = self
-            .key_catalog
-            .get_path(&self.backend, path.as_bytes())?
+        let uuid = self.cat_get_path(path.as_bytes())?
             .ok_or_else(|| Error::NotFound(format!("path not found: {path}")))?;
 
         {
@@ -5057,9 +5164,7 @@ impl Engine {
         // bytes).  Read it (committed state) as this commit's parent so
         // `.sfs/commits/` forms a real ancestry DAG (git-log-style), then advance
         // it to `commitish` below.  Absent (first commit) → no parent.
-        let parents: Vec<Uuid> = match self
-            .key_catalog
-            .get_path(&self.backend, COMMIT_HEAD_KEY.as_bytes())?
+        let parents: Vec<Uuid> = match self.cat_get_path(COMMIT_HEAD_KEY.as_bytes())?
         {
             Some(_) => match self.read(COMMIT_HEAD_KEY) {
                 Ok(bytes) if bytes.len() == 16 => {
@@ -5078,9 +5183,7 @@ impl Engine {
             Vec::with_capacity(paths.len());
         for &path in paths {
             let uuid = self.uuid_for_path(path)?;
-            let head_addr = self
-                .id_catalog
-                .get_uuid(&self.backend, &uuid)?
+            let head_addr = self.cat_get_uuid(&uuid)?
                 .ok_or_else(|| Error::NotFound(format!("no record for path: {path}")))?;
             let rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
             let content_ver = rec.streams[StreamKind::Content as usize]
@@ -5100,9 +5203,7 @@ impl Engine {
 
         for &path in paths {
             let uuid = self.uuid_for_path(path)?;
-            let head_addr = self
-                .id_catalog
-                .get_uuid(&self.backend, &uuid)?
+            let head_addr = self.cat_get_uuid(&uuid)?
                 .ok_or_else(|| Error::NotFound(format!("no record for path: {path}")))?;
             let mut rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
 
@@ -5180,9 +5281,7 @@ impl Engine {
         // Upsert `.sfs/COMMIT_HEAD` to this commitish so the NEXT commit reads it
         // as its parent.  All within the suppressed batch → committed atomically
         // with the commit itself.
-        if self
-            .key_catalog
-            .get_path(&self.backend, COMMIT_HEAD_KEY.as_bytes())?
+        if self.cat_get_path(COMMIT_HEAD_KEY.as_bytes())?
             .is_none()
         {
             self.create_unit_inner(COMMIT_HEAD_KEY, true, None, None)?;
@@ -5553,9 +5652,7 @@ impl Engine {
         version: BlockVersion,
     ) -> Result<(Vec<u8>, CipherSuiteId)> {
         // Resolve uuid → head record address.
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound("export_block: uuid not found".to_string()))?;
 
         // Walk the MVCC chain to find the block whose stored version is exactly
@@ -5677,9 +5774,7 @@ impl Engine {
         content_suite: CipherSuiteId,
     ) -> Result<()> {
         // Resolve uuid → head record address.
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| {
                 Error::NotFound(
                     "import_block: uuid not registered — call register_unit_uuid first"
@@ -5877,9 +5972,7 @@ impl Engine {
     /// triples are consistent across containers.
     pub fn register_unit_uuid(&mut self, path: &str, uuid: Uuid) -> Result<()> {
         // Check if path already maps somewhere.
-        let existing_path = self
-            .key_catalog
-            .get_path(&self.backend, path.as_bytes())?;
+        let existing_path = self.cat_get_path(path.as_bytes())?;
 
         // If the path is already bound to a DIFFERENT uuid, reject immediately.
         // Writing uuid_Y's record while the path still points at uuid_X would
@@ -5893,9 +5986,7 @@ impl Engine {
         }
 
         // Check if uuid already has a record.
-        let existing_uuid = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?;
+        let existing_uuid = self.cat_get_uuid(&uuid)?;
 
         if existing_path.is_some() && existing_uuid.is_some() {
             // Both already set up with the same uuid — idempotent.
@@ -5953,7 +6044,7 @@ impl Engine {
     /// directories and metadata-only changes reach peers.
     pub fn sync_manifest(&self) -> Result<Vec<UnitSyncState>> {
         // Scan the full key space to enumerate all registered units.
-        let pairs = self.key_catalog.scan_paths(&self.backend, &[])?;
+        let pairs = self.cat_scan_paths(&[])?;
         let mut out = Vec::with_capacity(pairs.len());
         for (key_bytes, uuid) in pairs {
             if let Some(state) = self.unit_sync_state_inner(key_bytes, uuid)? {
@@ -5977,13 +6068,13 @@ impl Engine {
         // The key catalog is path→uuid and stores no reverse index. Resolve the
         // ID first, then scan paths only when the caller needs the key
         // (get_records needs it; have does not — one shape keeps the API honest).
-        let Some(_head) = self.id_catalog.get_uuid(&self.backend, &uuid)? else {
+        let Some(_head) = self.cat_get_uuid(&uuid)? else {
             return Ok(None);
         };
         // Reverse lookup: enumerate keys only until the uuid matches.  Bounded
         // by the keyspace size; acceptable for the P2P serving path (records
         // are fetched per-unit during a sync round, not per-block).
-        for (key_bytes, k_uuid) in self.key_catalog.scan_paths(&self.backend, &[])? {
+        for (key_bytes, k_uuid) in self.cat_scan_paths(&[])? {
             if k_uuid == uuid {
                 return self.unit_sync_state_inner(key_bytes, uuid);
             }
@@ -6001,7 +6092,7 @@ impl Engine {
         uuid: Uuid,
     ) -> Result<Option<UnitSyncState>> {
         // Resolve uuid → head record.
-        let Some(head_addr) = self.id_catalog.get_uuid(&self.backend, &uuid)? else {
+        let Some(head_addr) = self.cat_get_uuid(&uuid)? else {
             return Ok(None); // Stale key without a record — skip.
         };
         let rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
@@ -6063,13 +6154,9 @@ impl Engine {
     /// This is `O(1)` per call (reads only the head unit record for the primary).
     /// Returns `false` for units with no content stream (directories).
     pub fn has_conflict(&self, key: &[u8]) -> Result<bool> {
-        let uuid = self
-            .key_catalog
-            .get_path(&self.backend, key)?
+        let uuid = self.cat_get_path(key)?
             .ok_or_else(|| Error::NotFound("has_conflict: key not found".into()))?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound("has_conflict: no record for uuid".into()))?;
         let rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
         Ok(!rec.concurrent_strains.is_empty())
@@ -6083,13 +6170,9 @@ impl Engine {
     ///
     /// Returns `Err(NotFound)` if `key` is not registered or has no content stream.
     pub fn unit_strains(&self, key: &[u8]) -> Result<Vec<StrainInfo>> {
-        let uuid = self
-            .key_catalog
-            .get_path(&self.backend, key)?
+        let uuid = self.cat_get_path(key)?
             .ok_or_else(|| Error::NotFound("unit_strains: key not found".into()))?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound("unit_strains: no record for uuid".into()))?;
         let primary_rec =
             read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
@@ -6131,13 +6214,9 @@ impl Engine {
             return self.read(path);
         }
 
-        let uuid = self
-            .key_catalog
-            .get_path(&self.backend, path.as_bytes())?
+        let uuid = self.cat_get_path(path.as_bytes())?
             .ok_or_else(|| Error::NotFound("read_strain: key not found".into()))?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound("read_strain: no record for uuid".into()))?;
         let primary_rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
 
@@ -6195,13 +6274,9 @@ impl Engine {
     /// counter, and `concurrent_strains` is cleared.  A single atomic
     /// `publish()` finalises the change.
     pub fn resolve_conflict(&mut self, key: &[u8], r: Resolution) -> Result<()> {
-        let uuid = self
-            .key_catalog
-            .get_path(&self.backend, key)?
+        let uuid = self.cat_get_path(key)?
             .ok_or_else(|| Error::NotFound("resolve_conflict: key not found".into()))?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound("resolve_conflict: no record for uuid".into()))?;
         let primary_rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
 
@@ -6389,15 +6464,11 @@ impl Engine {
     /// or has no content stream.
     pub fn export_record(&self, key: &[u8]) -> Result<Vec<u8>> {
         // 1. Resolve key → uuid.
-        let uuid = self
-            .key_catalog
-            .get_path(&self.backend, key)?
+        let uuid = self.cat_get_path(key)?
             .ok_or_else(|| Error::NotFound("export_record: key not found".into()))?;
 
         // 2. Load head record → project.
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound("export_record: no record for uuid".to_string()))?;
         let rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
         self.project_record(key, uuid, &rec)
@@ -6412,13 +6483,9 @@ impl Engine {
     /// records.  Serving the strains lets a third replica learn about a
     /// conflict from ANY peer that has seen it, not only from the authors.
     pub fn export_records_frontier(&self, key: &[u8]) -> Result<Vec<Vec<u8>>> {
-        let uuid = self
-            .key_catalog
-            .get_path(&self.backend, key)?
+        let uuid = self.cat_get_path(key)?
             .ok_or_else(|| Error::NotFound("export_records_frontier: key not found".into()))?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| {
                 Error::NotFound("export_records_frontier: no record for uuid".to_string())
             })?;
@@ -6600,15 +6667,11 @@ impl Engine {
         let projection = self.export_record(key)?;
 
         // 2. Resolve key → uuid → head record (same steps as export_record).
-        let uuid = self
-            .key_catalog
-            .get_path(&self.backend, key)?
+        let uuid = self.cat_get_path(key)?
             .ok_or_else(|| {
                 Error::NotFound("export_record_verifiable: key not found".into())
             })?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| {
                 Error::NotFound("export_record_verifiable: no record for uuid".into())
             })?;
@@ -7090,7 +7153,7 @@ impl Engine {
         }
 
         // 3. Check for existing binding (key → uuid) — reject key→different-uuid conflict.
-        let existing_path = self.key_catalog.get_path(&self.backend, &key)?;
+        let existing_path = self.cat_get_path(&key)?;
         if let Some(bound_uuid) = existing_path {
             if bound_uuid != uuid {
                 return Err(Error::Integrity(
@@ -7102,7 +7165,7 @@ impl Engine {
         // 4. Load any existing record for this uuid so we can:
         //    (a) FIX 1 — preserve unchanged-fragment locations (incremental re-sync)
         //    (b) FIX 2 — detect uuid already bound to a DIFFERENT key (move/re-key)
-        let head_addr_opt = self.id_catalog.get_uuid(&self.backend, &uuid)?;
+        let head_addr_opt = self.cat_get_uuid(&uuid)?;
 
         // FIX 2: uuid→old-key reverse lookup.
         // If the uuid already exists in the id_catalog, scan the key_catalog to find
@@ -7111,7 +7174,7 @@ impl Engine {
         // insert the new one.  The one-uuid ↔ one-key invariant is maintained.
         if head_addr_opt.is_some() {
             // Scan all path→uuid pairs to find the key currently bound to `uuid`.
-            let all_pairs = self.key_catalog.scan_paths(&self.backend, &[])?;
+            let all_pairs = self.cat_scan_paths(&[])?;
             if let Some((old_key_bytes, _)) = all_pairs.into_iter().find(|(_, u)| u == &uuid) {
                 if old_key_bytes != key {
                     // uuid is bound to a different key — remove the stale binding.
@@ -7678,9 +7741,7 @@ impl Engine {
     /// This is necessary for abstract application keys (e.g. `b"\x00\x01app-key\xff"`)
     /// that are not valid UTF-8 strings.
     pub fn create_unit_raw_key(&mut self, key: &[u8]) -> Result<Uuid> {
-        if self
-            .key_catalog
-            .get_path(&self.backend, key)?
+        if self.cat_get_path(key)?
             .is_some()
         {
             return Err(Error::Integrity(
@@ -7724,17 +7785,14 @@ impl Engine {
 
     /// Return the UUID for the unit at raw byte `key`.
     pub fn uuid_for_raw_key(&self, key: &[u8]) -> Result<Uuid> {
-        self.key_catalog
-            .get_path(&self.backend, key)?
+        self.cat_get_path(key)?
             .ok_or_else(|| Error::NotFound("uuid_for_raw_key: key not found".into()))
     }
 
     /// Return a [`UnitSummary`] for the unit at raw byte `key`.
     pub fn unit_summary_raw_key(&self, key: &[u8]) -> Result<UnitSummary> {
         let uuid = self.uuid_for_raw_key(key)?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound("unit_summary_raw_key: no record".to_string()))?;
         let rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
         let content_sm = rec.streams[StreamKind::Content as usize].as_ref();
@@ -7766,9 +7824,7 @@ impl Engine {
             return Err(Error::Integrity("write_raw_key: empty data".into()));
         }
         let uuid = self.uuid_for_raw_key(key)?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound("write_raw_key: no record for key".to_string()))?;
         let old_rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
         let mut sm = old_rec.streams[StreamKind::Content as usize]
@@ -7920,9 +7976,7 @@ impl Engine {
     /// Read the full content of the unit at raw byte `key`.
     pub fn read_raw_key(&self, key: &[u8]) -> Result<Vec<u8>> {
         let uuid = self.uuid_for_raw_key(key)?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound("read_raw_key: no record".to_string()))?;
         let rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
         let Some(sm) = &rec.streams[StreamKind::Content as usize] else {
@@ -8105,9 +8159,7 @@ impl Engine {
             return Err(Error::Integrity("write: empty data".into()));
         }
         let uuid = self.uuid_for_path(path)?;
-        let head_addr = self
-            .id_catalog
-            .get_uuid(&self.backend, &uuid)?
+        let head_addr = self.cat_get_uuid(&uuid)?
             .ok_or_else(|| Error::NotFound(format!("no record for path: {path}")))?;
         let old_rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
         let mut sm = old_rec.streams[StreamKind::Content as usize]
@@ -8725,6 +8777,12 @@ impl Engine {
     /// flush still runs but the commit is skipped, modelling a crash in that exact
     /// window.
     fn publish(&mut self) -> Result<()> {
+        if self.read_only {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "commit: container is opened read-only",
+            )));
+        }
         if self.suppress_commit {
             // Inside a transaction (or a crash-sim seam): NO barrier and NO
             // commit here.  The single final publish (suppress_commit=false)
@@ -8982,7 +9040,7 @@ impl Engine {
     /// Shared checkpoint implementation.
     fn checkpoint_inner(&mut self) -> Result<()> {
         // Build uuid→path map by scanning the KeyCatalog.
-        let all_path_pairs = self.key_catalog.scan_paths(&self.backend, &[])?;
+        let all_path_pairs = self.cat_scan_paths(&[])?;
         let uuid_to_path: HashMap<[u8; 16], String> = all_path_pairs
             .into_iter()
             .filter_map(|(k, uuid)| String::from_utf8(k).ok().map(|s| (uuid, s)))
@@ -9536,7 +9594,7 @@ impl Engine {
         // records + catalog nodes — an O(live) walk.  The parent chain is pure
         // lineage metadata now; walking it (the old O(device) mount cost, ~300×)
         // is no longer needed to find live blocks.
-        let entries = self.id_catalog.scan_all(&self.backend)?;
+        let entries = self.cat_scan_all()?;
         for (_uuid, head_addr) in entries {
             // Use raw_size to compute the on-disk footprint without decrypting.
             let raw_size = unit_record_raw_size(&self.backend, head_addr, self.header.cipher)?;
@@ -9757,7 +9815,7 @@ impl Engine {
         // Head unit records + their FULL parent chain.
         // Collect (path_bytes, uuid) first, then walk the chain.
         let all_paths: Vec<(Vec<u8>, Uuid)> =
-            self.key_catalog.scan_paths(&self.backend, &[])?;
+            self.cat_scan_paths(&[])?;
 
         // #78: account EVERY id-reachable unit — live AND D-13 orphans.  An
         // unlinked path drops the KEY entry but the id entry and its blocks are
@@ -9767,7 +9825,7 @@ impl Engine {
         // overwrote them — the dangling id entries then read as garbage and fail
         // fsck ("unit record length exceeds container").  Compaction (Step 3)
         // stays key-reachable.  Kernel parity: sfs_defrag.c df_id_acct_cb.
-        for (_uuid, head_addr) in self.id_catalog.scan_all(&self.backend)? {
+        for (_uuid, head_addr) in self.cat_scan_all()? {
             // Walk the full chain from head to root.
             let mut walk_addr = head_addr;
             loop {
@@ -9868,7 +9926,7 @@ impl Engine {
             std::collections::HashSet::new();
 
         for (path, uuid) in units {
-            let Some(head_addr) = self.id_catalog.get_uuid(&self.backend, &uuid)? else {
+            let Some(head_addr) = self.cat_get_uuid(&uuid)? else {
                 continue;
             };
             let old_rec = read_unit_record(&self.backend, head_addr, self.header.cipher, &self.root_key, self.header.sign_mode, &self.header.writer_pubkey, self.writer_set.as_ref())?;
@@ -10206,7 +10264,7 @@ impl Engine {
         let mut refresh_set: Vec<(Uuid, u32, BlockVersion)> = Vec::new();
 
         // Iterate EVERY live unit via the IdCatalog (uuid → head record addr).
-        let entries = self.id_catalog.scan_all(&self.backend)?;
+        let entries = self.cat_scan_all()?;
 
         for (uuid, head_addr) in entries {
             let old_rec = read_unit_record(
@@ -10669,7 +10727,7 @@ impl Engine {
 
         // Rebuild the KeyCatalog (path → uuid) under the NEW key by enumerating
         // every path via the OLD key_catalog.  uuids are key-independent identity.
-        let path_pairs = self.key_catalog.scan_paths(&self.backend, &[])?;
+        let path_pairs = self.cat_scan_paths(&[])?;
         for (path, uuid) in &path_pairs {
             new_key_catalog.put_path(&mut self.backend, &mut self.alloc, path, uuid)?;
         }
@@ -10678,7 +10736,7 @@ impl Engine {
         // recipher, which skips content-less units, EVERY record must be rewritten
         // because the metadata key changed (a record left under the old meta key
         // would be undecryptable under the new key).
-        let entries = self.id_catalog.scan_all(&self.backend)?;
+        let entries = self.cat_scan_all()?;
         for (uuid, head_addr) in entries {
             // Read the old head record under the OLD key (self.root_key is still
             // the old key throughout this loop — read_fragment below relies on it).

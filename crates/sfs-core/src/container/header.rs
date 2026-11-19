@@ -658,7 +658,7 @@ impl ContainerHeader {
     /// legacy v8 (unsealed-meta) container is never mis-stamped v10 — see
     /// `Engine::open_with_key` and `Engine::meta_seal_active`.  A `None` key with
     /// a v10 struct (bootstrap/test helpers only) yields a CRC-only v10 slot.
-    fn to_wire(&self, mac_key: Option<&[u8; 32]>) -> Vec<u8> {
+    pub(crate) fn to_wire(&self, mac_key: Option<&[u8; 32]>) -> Vec<u8> {
         let mut body = [0u8; BODY_SIZE_V12];
         self.serialize_body(&mut body);
 

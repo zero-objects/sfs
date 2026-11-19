@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 pub mod api;
+pub mod archive;
 pub mod block;
 pub mod commit_profile;
 pub mod stats;

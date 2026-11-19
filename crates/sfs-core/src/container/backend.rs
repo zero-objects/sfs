@@ -103,6 +103,17 @@ pub struct Backend {
     /// evict or return "no space", never grow past the device.  Always `false`
     /// for the in-RAM backend (a `Vec` always grows).
     no_grow: bool,
+    /// Byte offset of the container inside the backing file.  `0` for every
+    /// container that owns its file; non-zero only for a read-only **section**
+    /// of a larger file ([`Backend::open_read_only_section`]), e.g. an asset
+    /// archive stored uncompressed inside an APK or appended to another file.
+    /// All container addresses stay relative to the container start.
+    base: u64,
+    /// When `true` every mutating call (`write_at`, `grow`, `shrink`) fails with
+    /// `PermissionDenied` and `flush` is a no-op.  Set by the read-only opens
+    /// and by the engine for sealed archives, so a read-only engine can never
+    /// change a byte of its container — not even in RAM.
+    read_only: bool,
     /// Always-on count of positioned `read_at` calls (item O instrumentation).
     ///
     /// Unlike the feature-gated `stats::BLOCKS_READ`, this counter is always
@@ -184,14 +195,14 @@ impl Backend {
             // The whole device is the container: hand the allocator the full
             // fixed length as slack so it never needs to grow.  `no_grow` makes a
             // later `grow()` fail cleanly (ENOSPC) instead of silently no-op'ing.
-            return Ok(Backend { store: Store::File(file), len: dev_len, no_grow: true, reads: std::sync::atomic::AtomicU64::new(0) });
+            return Ok(Backend { store: Store::File(file), len: dev_len, no_grow: true, base: 0, read_only: false, reads: std::sync::atomic::AtomicU64::new(0) });
         }
 
         // Regular file: reset to empty, then size up (zero-filled — observably
         // identical to `truncate(true)` + `set_len(len)`).
         file.set_len(0).map_err(crate::Error::Io)?;
         file.set_len(len).map_err(crate::Error::Io)?;
-        Ok(Backend { store: Store::File(file), len, no_grow: false, reads: std::sync::atomic::AtomicU64::new(0) })
+        Ok(Backend { store: Store::File(file), len, no_grow: false, base: 0, read_only: false, reads: std::sync::atomic::AtomicU64::new(0) })
     }
 
     /// Creates a fresh **in-RAM** container backend of exactly `len` zero bytes
@@ -209,7 +220,7 @@ impl Backend {
                 "in-memory container length exceeds addressable memory",
             ))
         })?;
-        Ok(Backend { store: Store::Mem(vec![0u8; cap]), len, no_grow: false, reads: std::sync::atomic::AtomicU64::new(0) })
+        Ok(Backend { store: Store::Mem(vec![0u8; cap]), len, no_grow: false, base: 0, read_only: false, reads: std::sync::atomic::AtomicU64::new(0) })
     }
 
     /// Creates a fresh **in-RAM** container backend of `len` zero bytes that is
@@ -228,7 +239,7 @@ impl Backend {
                 "in-memory container length exceeds addressable memory",
             ))
         })?;
-        Ok(Backend { store: Store::Mem(vec![0u8; cap]), len, no_grow: true, reads: std::sync::atomic::AtomicU64::new(0) })
+        Ok(Backend { store: Store::Mem(vec![0u8; cap]), len, no_grow: true, base: 0, read_only: false, reads: std::sync::atomic::AtomicU64::new(0) })
     }
 
     /// Re-opens an existing in-RAM container from the raw bytes produced by
@@ -240,7 +251,7 @@ impl Backend {
     /// that when it reads the header.
     pub fn open_in_memory(bytes: Vec<u8>) -> Result<Self> {
         let len = bytes.len() as u64;
-        Ok(Backend { store: Store::Mem(bytes), len, no_grow: false, reads: std::sync::atomic::AtomicU64::new(0) })
+        Ok(Backend { store: Store::Mem(bytes), len, no_grow: false, base: 0, read_only: false, reads: std::sync::atomic::AtomicU64::new(0) })
     }
 
     /// Returns a full byte copy of the backing store's current contents.
@@ -281,7 +292,119 @@ impl Backend {
         // `st_size` is 0, so the real length comes from `lseek(SEEK_END)`; such a
         // backend is marked `no_grow` so the engine treats it as a fixed store.
         let (len, is_device) = probe_backing_len(&file)?;
-        Ok(Backend { store: Store::File(file), len, no_grow: is_device, reads: std::sync::atomic::AtomicU64::new(0) })
+        Ok(Backend { store: Store::File(file), len, no_grow: is_device, base: 0, read_only: false, reads: std::sync::atomic::AtomicU64::new(0) })
+    }
+
+    /// Opens an existing container file at `path` **read-only**.
+    ///
+    /// The file is opened without write access, so this works on read-only
+    /// media and in read-only locations (an iOS app bundle, a read-only mount,
+    /// a file with mode `0444`).  Nothing is read up front: like [`open`], the
+    /// backend reads on demand with positioned IO (`pread`), so the container
+    /// is never loaded into memory as a whole.
+    ///
+    /// A **shared** advisory lock is taken so that a process holding the
+    /// container open for writing (exclusive lock) is detected and reported
+    /// instead of read mid-update.  Several read-only openers coexist.  Lock
+    /// errors other than "held by a writer" (e.g. a filesystem without lock
+    /// support) are ignored: the lock is advisory and reading cannot corrupt.
+    ///
+    /// Every mutating call on the returned backend fails with
+    /// `PermissionDenied`.
+    ///
+    /// [`open`]: Backend::open
+    pub fn open_read_only(path: &Path) -> Result<Self> {
+        let file = OpenOptions::new().read(true).open(path).map_err(crate::Error::Io)?;
+        match file.try_lock_shared() {
+            Ok(()) => {}
+            Err(std::fs::TryLockError::WouldBlock) => {
+                return Err(crate::Error::Integrity(format!(
+                    "container is locked for writing by another process: {}",
+                    path.display()
+                )))
+            }
+            Err(std::fs::TryLockError::Error(_)) => {}
+        }
+        let (len, _is_device) = probe_backing_len(&file)?;
+        Ok(Backend {
+            store: Store::File(file),
+            len,
+            no_grow: true,
+            base: 0,
+            read_only: true,
+            reads: std::sync::atomic::AtomicU64::new(0),
+        })
+    }
+
+    /// Uses the byte range `[offset, offset + len)` of an already opened
+    /// `file` as a **read-only** container.
+    ///
+    /// For containers stored inside another file: an asset archive stored
+    /// uncompressed in an Android APK (the file descriptor, start offset and
+    /// length come from `AAsset_openFileDescriptor64`), or a container
+    /// appended to an executable or bundled in a larger pack file.  Container
+    /// addresses are relative to `offset`; reads past `offset + len` are
+    /// rejected exactly like reads past the end of a container file.
+    ///
+    /// The file only needs read access.  No lock is taken (the caller owns the
+    /// descriptor and usually shares the underlying file with other readers).
+    /// Reads are positioned (`pread`), so the descriptor's cursor is never used
+    /// on Unix and other users of the same descriptor are not disturbed.
+    ///
+    /// Returns `Err` if the range does not lie within the file (when the file
+    /// size can be determined).
+    pub fn open_read_only_section(file: File, offset: u64, len: u64) -> Result<Self> {
+        let end = offset.checked_add(len).ok_or_else(|| {
+            crate::Error::Io(io::Error::new(io::ErrorKind::InvalidInput, "section offset + length overflows"))
+        })?;
+        if let Ok((file_len, _)) = probe_backing_len(&file) {
+            if end > file_len {
+                return Err(crate::Error::Io(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!("section [{offset}, {end}) exceeds the file length {file_len}"),
+                )));
+            }
+        }
+        Ok(Backend {
+            store: Store::File(file),
+            len,
+            no_grow: true,
+            base: offset,
+            read_only: true,
+            reads: std::sync::atomic::AtomicU64::new(0),
+        })
+    }
+
+    /// Makes this backend read-only from now on: every later `write_at`,
+    /// `grow` and `shrink` fails with `PermissionDenied`, `flush` does nothing.
+    /// Irreversible.  The engine calls it for sealed archives, whose layout has
+    /// no free space and must never be written, also when they are opened from
+    /// bytes in RAM.
+    pub fn set_read_only(&mut self) {
+        self.read_only = true;
+    }
+
+    /// `true` if every mutating call on this backend is refused.
+    #[inline]
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// Byte offset of the container within its backing file (`0` unless the
+    /// backend was opened with [`Backend::open_read_only_section`]).
+    #[inline]
+    pub fn base_offset(&self) -> u64 {
+        self.base
+    }
+
+    fn refuse_write(&self, what: &str) -> Result<()> {
+        if self.read_only {
+            return Err(crate::Error::Io(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("{what}: container is opened read-only"),
+            )));
+        }
+        Ok(())
     }
 
     /// Take an **exclusive advisory lock** on the container file (P8.7a).
@@ -358,7 +481,9 @@ impl Backend {
         // Always-on read counter (item O): measures the lazy-CoW bitmap fast path.
         self.reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         match &self.store {
-            Store::File(file) => crate::pio::read_exact_at(file, buf, off).map_err(crate::Error::Io),
+            Store::File(file) => {
+                crate::pio::read_exact_at(file, buf, self.base + off).map_err(crate::Error::Io)
+            }
             Store::Mem(mem) => {
                 // Bounds already validated against `self.len` above; `off + len`
                 // is therefore in range for the buffer (len == mem.len()).
@@ -374,6 +499,7 @@ impl Backend {
     /// Returns `Err` if `off + buf.len() > self.len()`. The caller must call
     /// [`grow`][Backend::grow] first to extend the container.
     pub fn write_at(&mut self, off: u64, buf: &[u8]) -> Result<()> {
+        self.refuse_write("write")?;
         let end = off
             .checked_add(buf.len() as u64)
             .ok_or_else(|| crate::Error::Io(io::Error::new(
@@ -391,7 +517,7 @@ impl Backend {
         crate::prof_add!(PWRITES, 1);
         crate::prof_add!(PHYS_BYTES, buf.len());
         match &mut self.store {
-            Store::File(file) => crate::pio::write_all_at(file, buf, off).map_err(crate::Error::Io),
+            Store::File(file) => crate::pio::write_all_at(file, buf, self.base + off).map_err(crate::Error::Io),
             Store::Mem(mem) => {
                 // Bounds already validated against `self.len` above.
                 let start = off as usize;
@@ -408,6 +534,11 @@ impl Backend {
     /// skip metadata on some platforms.
     pub fn flush(&self) -> Result<()> {
         crate::prof_add!(FLUSHES, 1);
+        if self.read_only {
+            // Nothing was written; a read-only descriptor may not even allow
+            // `fsync` (Windows: FlushFileBuffers needs write access).
+            return Ok(());
+        }
         match &self.store {
             Store::File(file) => file.sync_all().map_err(crate::Error::Io),
             // Nothing to sync: the buffer *is* the durable state (there is no
@@ -422,6 +553,7 @@ impl Backend {
     /// Uses [`File::set_len`] which zero-fills gaps on all platforms (sparse
     /// holes on Unix, zero-filled on Windows).
     pub fn grow(&mut self, new_len: u64) -> Result<()> {
+        self.refuse_write("grow")?;
         if new_len <= self.len {
             return Err(crate::Error::Io(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -462,6 +594,7 @@ impl Backend {
     ///
     /// [`grow`]: Backend::grow
     pub fn shrink(&mut self, new_len: u64) -> Result<()> {
+        self.refuse_write("shrink")?;
         if new_len >= self.len {
             return Err(crate::Error::Io(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -598,6 +731,55 @@ mod tests {
         assert_eq!(&t, b"tail");
         // snapshot() of the reopened backend is byte-identical.
         assert_eq!(reopened.snapshot().unwrap(), snap);
+    }
+
+    #[test]
+    fn read_only_section_is_relative_and_refuses_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("outer.bin");
+        std::fs::write(&path, b"0123456789abcdef").unwrap();
+
+        let mut b = Backend::open_read_only_section(File::open(&path).unwrap(), 4, 8).unwrap();
+        assert_eq!((b.len(), b.base_offset(), b.is_read_only()), (8, 4, true));
+        let mut buf = [0u8; 8];
+        b.read_at(0, &mut buf).unwrap();
+        assert_eq!(&buf, b"456789ab");
+        assert!(b.read_at(1, &mut buf).is_err(), "read past the section end");
+        assert_eq!(b.snapshot().unwrap(), b"456789ab");
+        for r in [b.write_at(0, b"x"), b.grow(16), b.shrink(4)] {
+            match r {
+                Err(crate::Error::Io(e)) => assert_eq!(e.kind(), io::ErrorKind::PermissionDenied),
+                other => panic!("expected PermissionDenied, got {other:?}"),
+            }
+        }
+        b.flush().unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"0123456789abcdef");
+
+        assert!(Backend::open_read_only_section(File::open(&path).unwrap(), 10, 10).is_err());
+        assert!(Backend::open_read_only_section(File::open(&path).unwrap(), u64::MAX, 2).is_err());
+    }
+
+    #[test]
+    fn read_only_open_and_set_read_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("c.bin");
+        std::fs::write(&path, b"abc").unwrap();
+        let mut b = Backend::open_read_only(&path).unwrap();
+        assert!(b.is_read_only());
+        assert!(b.write_at(0, b"z").is_err());
+        let mut buf = [0u8; 3];
+        b.read_at(0, &mut buf).unwrap();
+        assert_eq!(&buf, b"abc");
+        // A writer cannot take the exclusive lock while a reader holds the file.
+        assert!(Backend::open(&path).is_err());
+        drop(b);
+        assert!(Backend::open(&path).is_ok());
+
+        let mut m = Backend::open_in_memory(b"abc".to_vec()).unwrap();
+        m.write_at(0, b"x").unwrap();
+        m.set_read_only();
+        assert!(m.write_at(0, b"y").is_err());
+        assert_eq!(m.snapshot().unwrap(), b"xbc");
     }
 
     #[test]
