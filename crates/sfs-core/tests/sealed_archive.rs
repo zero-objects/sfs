@@ -233,8 +233,12 @@ fn opens_archive_without_write_permission() {
     let path = dir.path().join("assets.pak");
     std::fs::write(&path, &archive).unwrap();
     set_read_only(&path);
-    assert!(std::fs::OpenOptions::new().write(true).open(&path).is_err(), "file must not be writable");
-    assert!(Engine::open_with_key(&path, KEY).is_err(), "the writable open needs write access");
+    // A privileged user (root in a CI container) may open a 0444 file for
+    // writing anyway; the refusal of the writable open is only checkable when
+    // the permission bits are enforced.
+    if std::fs::OpenOptions::new().write(true).open(&path).is_err() {
+        assert!(Engine::open_with_key(&path, KEY).is_err(), "the writable open needs write access");
+    }
 
     let mut e = Engine::open_read_only(&path, KEY).unwrap();
     assert!(e.is_sealed_archive() && e.is_read_only());
