@@ -54,8 +54,8 @@ use std::str::FromStr;
 // num-bigint for the (public) Thinbus hex/wire arithmetic — only the
 // exponentiations move.
 pub mod ct {
-    use crypto_bigint::modular::runtime_mod::{DynResidue, DynResidueParams};
-    use crypto_bigint::{Encoding, U2048, U4096};
+    use crypto_bigint::modular::{FixedMontyForm, FixedMontyParams};
+    use crypto_bigint::{Odd, U2048, U4096};
     use num_bigint::BigUint;
 
     /// Big-endian-encode a `BigUint` that is `< 2^2048` into a fixed 256-byte
@@ -88,12 +88,17 @@ pub mod ct {
     /// `base^exp mod modulus`, constant-time in the values of `base` and `exp`.
     ///
     /// `modulus` MUST be odd (the SRP group prime N is a safe prime — always
-    /// odd).  The exponentiation always runs the full 4096-bit ladder, so its
-    /// duration is independent of the secret exponent's value and bit-length.
+    /// odd); an even modulus panics.  The exponentiation always runs the full
+    /// 4096-bit ladder (`FixedMontyForm::pow` = `pow_bounded_exp(_, 4096)`), so
+    /// its duration is independent of the secret exponent's value and
+    /// bit-length.  `FixedMontyParams::new` (not `new_vartime`) keeps the
+    /// parameter setup constant-time as well.
     pub fn modpow(base: &BigUint, exp: &BigUint, modulus: &BigUint) -> BigUint {
-        let n = to_u2048(modulus);
-        let params = DynResidueParams::new(&n);
-        let b = DynResidue::new(&to_u2048(base), params);
+        let n = Odd::new(to_u2048(modulus))
+            .into_option()
+            .expect("SRP modulus must be odd");
+        let params = FixedMontyParams::new(n);
+        let b = FixedMontyForm::new(&to_u2048(base), &params);
         let r = b.pow(&to_u4096(exp));
         from_u2048(&r.retrieve())
     }
@@ -373,7 +378,11 @@ impl SrpServerSession {
         let g = g();
         let k = k();
 
-        let verifier = parse_hex_biguint(verifier_hex)?;
+        // The verifier is client-supplied at registration and stored unchecked.
+        // Reduce it mod N: `v^u` and `k*v` are unchanged mod N, and the base
+        // reaching `ct::modpow` then fits its fixed U2048 encoding (a stored
+        // verifier >= 2^2048 would otherwise panic in `step2`).
+        let verifier = parse_hex_biguint(verifier_hex)? % &n;
         let b = random_in_range(&n);
         // B = (k*v + g^b) mod N
         let gb = ct::modpow(&g, &b, &n);

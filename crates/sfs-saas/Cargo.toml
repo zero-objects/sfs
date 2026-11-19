@@ -10,7 +10,7 @@ description = "Client-side-encrypted sfs SaaS blob-store service (server-side; t
 
 [dependencies]
 sfs-sync   = { path = "../sfs-sync", version = "1.0.0-rc.1", package = "zero-sfs-sync" }
-sfs-core   = { path = "../sfs-core", version = "1.0.0-rc.1", package = "zero-sfs-core" }
+sfs-core   = { path = "../sfs-core", version = "1.0.0-rc.2", package = "zero-sfs-core" }
 tempfile   = { workspace = true }
 sha2       = { workspace = true }
 getrandom  = { workspace = true }
@@ -21,7 +21,10 @@ num-traits = "0.2"
 # variable-time; crypto-bigint provides Montgomery-form CT modpow. subtle gives
 # constant-time proof comparison. num-bigint stays for the (public) Thinbus
 # hex/wire arithmetic.
-crypto-bigint = "0.5"
+# >= 0.7.6 required: RUSTSEC-2026-0387 (secret-dependent branches in Montgomery
+# multiplication, subtraction, division in all releases before 0.7.6).
+# No default features: only the fixed-width Uint / FixedMontyForm API is used.
+crypto-bigint = { version = "0.7.11", default-features = false }
 subtle     = "2"
 hex        = "0.4"
 rand       = "0.8"
@@ -68,7 +71,7 @@ default = ["server"]
 [dev-dependencies]
 serde_json = "1"
 rcgen      = "0.13"
-sfs-core   = { path = "../sfs-core", version = "1.0.0-rc.1", package = "zero-sfs-core" }
+sfs-core   = { path = "../sfs-core", version = "1.0.0-rc.2", package = "zero-sfs-core" }
 # Self dev-dependency to turn on `test-hooks` when building the test/bench
 # targets, so `cargo test` exposes the plaintext-absence inspection hook without it being a
 # default (production) feature.
