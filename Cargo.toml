@@ -14,7 +14,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 edition = "2021"
 # 1.89: std file locking (File::try_lock, P8.7a container lock);
 # 1.87: u64::is_multiple_of (clippy 1.95 manual_is_multiple_of)

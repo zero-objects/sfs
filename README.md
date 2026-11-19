@@ -27,7 +27,7 @@ Decision Point (D-0..D-23).
 
 ## Status
 
-**Release Candidate (1.0.0-rc.1).** The engine, sync/SaaS, NoSQL, mount adapter,
+**Release Candidate (1.0.0-rc.2).** The engine, sync/SaaS, NoSQL, mount adapter,
 WASM bindings, and the native Linux kernel path are all implemented; their
 verification levels, however, differ. The kernel driver currently lives on
 `feat/sfs-kernel-driver`. Hosted CI covers the portable Rust logic but does not

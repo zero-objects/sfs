@@ -7,8 +7,8 @@ authors:
     given-names: "Sandra Theresa"
 repository-code: "https://github.com/zero-objects/sfs"
 license: "MIT OR Apache-2.0"
-version: "1.0.0-rc.1"
-date-released: "2026-07-21"
+version: "1.0.0-rc.2"
+date-released: "2026-11-19"
 identifiers:
   - type: doi
     value: "10.5281/zenodo.21472009"

@@ -7,6 +7,58 @@ All notable changes to this project are documented here. The format follows
 Published crates carry the `zero-sfs-*` prefix for unambiguous registry naming;
 binary and library names remain `sfs-*` / `sfs_*` where documented.
 
+## [1.0.0-rc.2] — 2026-11-19
+
+Second Release Candidate. On crates.io `zero-sfs-core` and `zero-sfs-saas`
+are published as `1.0.0-rc.2`; the other `zero-sfs-*` packages stay at
+`1.0.0-rc.1` there, and their requirement `^1.0.0-rc.1` accepts the new
+packages (additions only, no public item removed).
+
+### Added
+- **Sealed archives** (`sfs_core::archive`) — `ArchiveWriter` (streaming,
+  ascending paths) and `pack` (any order, in RAM) write read-only, reproducible,
+  compact containers for content that is produced once and shipped many times,
+  e.g. the asset archive of an app or game. Equal files, root key and
+  `ArchiveOptions` give byte-identical archives: no clock, no random UUID, no
+  random nonce (SIV-style nonces from path, fragment index and content).
+  Fragments, records and a sealed path index are laid out without block
+  alignment. The ordinary `Engine` read API reads them; every write is refused.
+  Integrity holds per file (index, records and fragments are authenticated one
+  by one); the header area is excluded, and genuine parts of two archives under
+  the same key can be combined. See the module documentation.
+- **Read-only open** — `Engine::open_read_only(path, root_key)` opens any
+  container without write access (shared advisory lock, positioned on-demand
+  reads, no full load); `Engine::open_read_only_section(file, offset, len,
+  root_key)` opens a container stored in a byte range of a larger file (e.g. an
+  uncompressed asset inside an Android APK). `Engine::is_read_only`,
+  `Engine::is_sealed_archive`, `Engine::sealed_file_count`.
+- `CITATION.cff` with the Zenodo DOI of the preprint.
+
+### Fixed
+- **Cross-unit corruption** — the sub-block pack allocator now closes its open
+  block when a free overlaps it; before, a freed and re-lent block could be
+  overwritten by the next packed write (Rust core and kernel driver). New
+  guardrail `kernel/tools/sfs_overlap.c` (cross-unit extent overlap scan).
+- `kernel/tools/sfs_mut`: regrow of committed-empty units derives the fragment
+  exponent from the final size (test harness only).
+- `sfs-saas`: the HTTP/3 UDP socket is bound first, then TCP on the same port
+  (Windows `WSAEACCES 10013`, missing h3 endpoint).
+
+### Security
+- `sfs-saas`: `crypto-bigint` 0.5 -> 0.7 (RUSTSEC-2026-0387: secret-dependent
+  branches in operations intended to be constant-time, among them Montgomery
+  multiplication; fixed in 0.7.6). The SRP-6a login exponentiation
+  (`srp::ct::modpow`) now uses `FixedMontyForm` of `crypto-bigint` 0.7.11 with
+  the full 4096-bit exponent ladder. Results are byte-identical; the
+  Thinbus/Nimbus wire protocol is unchanged.
+- `sfs-saas`: the stored SRP verifier is reduced mod N before `v^u`. A client
+  could register an oversized verifier (>= 2^2048) and make the login of that
+  account panic in `srp::ct::modpow` (only that connection ended; present
+  since rc.1). Results for every valid verifier are unchanged.
+- `sfs-saas` dependencies updated to the releases that fix the advisories
+  reported by `cargo deny`: `h2` 0.4.20, `quinn-proto` 0.11.19, `quinn-udp`
+  0.5.16, `rustls` 0.23.46, `rustls-webpki` 0.103.17, `tokio` 1.54.1.
+
 ## [1.0.0-rc.1] — 2026-07-21
 
 First public Release Candidate. The engine, sync/SaaS layer, NoSQL surface,
